@@ -1,0 +1,15 @@
+[package]
+name = "nebula_email"
+version = "0.1.0"
+authors = ["Michael Bryant <shadow53@shadow53.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+lettre = "0.9.2"
+lettre_email = "0.9.2"
+serde = { version = "1.0", features = [ "derive" ] }
+tera = "1.0.1"
+tokio = { version = "0.2", features = [ "sync" ] }
+toml = "0.5"

@@ -1,0 +1,5 @@
+[workspace]
+members = [
+	"nebula",
+	"nebula_email",
+]
