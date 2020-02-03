@@ -12,8 +12,8 @@ use tokio::sync::RwLock;
 #[cfg(test)]
 mod tests {
     use super::deserialize_tera;
-    use super::{Config, SenderConfig};
-    use super::{FIELD_TO, FIELD_SUBJECT, FIELD_BODY, FIELD_FROM, FIELD_REPLY_TO, FIELD_CC, FIELD_BCC};
+    use super::{Handler, SenderConfig};
+    use super::{FIELD_TO, FIELD_SUBJECT, FIELD_BODY, FIELD_REPLY_TO, FIELD_CC, FIELD_BCC};
     use serde::de::IntoDeserializer;
     use tera::{Context, Tera};
     use toml;
@@ -117,7 +117,7 @@ the templates were parsed at all.
 
     #[test]
     fn test_config_bare_smtp() {
-        let conf: Config = toml::from_str(CONFIG_BARE_SMTP).unwrap();
+        let conf: Handler = toml::from_str(CONFIG_BARE_SMTP).unwrap();
         assert_eq!(conf.name, "test-smtp");
         assert_eq!(conf.depends.len(), 0);
         assert_eq!(conf.templates.render(FIELD_TO, &Context::new()).unwrap(), "admin@example.org");
@@ -134,7 +134,7 @@ depends = ["testdep"]
     from = "example+extratext@gmail.com"
 [templates]
     to = "admin@example.org"
-    from = "example+templates@gmail.com"
+    #from = "example+templates@gmail.com"
     subject = "Test Subject"
     body = """
 The template parsing is mostly tested by other tests.
@@ -148,7 +148,7 @@ the templates were parsed at all.
 
     #[test]
     fn test_config_full_smtp() {
-        let conf: Config = toml::from_str(CONFIG_FULL_SMTP).unwrap();
+        let conf: Handler = toml::from_str(CONFIG_FULL_SMTP).unwrap();
         assert_eq!(conf.name, "test-smtp");
         assert_eq!(conf.depends.len(), 1);
         assert_eq!(conf.depends[0], String::from("testdep"));
@@ -168,7 +168,7 @@ I am testing out multiline TOML strings.
     const FULL_TMPL_CONFIG: &str = r#"
 to = "admin@example.org"
 subject = "Example subject"
-from = "from-me@example.org"
+#from = "from-me@example.org"
 reply_to = "user@domain.net"
 cc = "ccme@example.org"
 bcc = "bccme@example.org"
@@ -212,7 +212,7 @@ I am testing out multiline TOML strings.
 I am testing out multiline TOML strings.
 "#),
             (FIELD_REPLY_TO, "user@domain.net"),
-            (FIELD_FROM, "from-me@example.org"),
+            //(FIELD_FROM, "from-me@example.org"),
             (FIELD_CC, "ccme@example.org"),
             (FIELD_BCC, "bccme@example.org"),
         );
@@ -226,48 +226,78 @@ I am testing out multiline TOML strings.
     }
 }
 
+/// The main entry point for this crate. It will implement a `Handler` trait
+/// from the `nebula_core` crate, once that gets fleshed out.
 #[derive(Deserialize)]
-pub struct Config {
+pub struct Handler {
     // TODO: Move some items to a HandlerBase
+    /// The name of the Handler.
     name: String,
+    /// A `Sender` configured to send this email.
     #[serde(deserialize_with = "deserialize_sender")]
     sender: Sender,
+    /// A (possibly empty) list of other `Handler`s this depends on.
     #[serde(default)]
     depends: Vec<String>,
+    /// A `Tera` object loaded with all of the necessary templates for
+    /// generating the email message.
     #[serde(deserialize_with = "deserialize_tera")]
     templates: Tera,
+    /// An optional list of form field names containing files to attach to the
+    /// email message.
     files: Option<Vec<String>>,
 }
 
+/// An intermediate struct for parsing configurations for sending emails
+/// through an SMTP server.
 #[derive(Deserialize)]
 struct SmtpConfig {
+    /// The hostname of the SMTP server, e.g. `"smtp.gmail.com"`
     host: String,
+    /// The port used to access the SMTP server. Usually `25`, `465`, `587`,
+    /// or `2525`.
     port: u32,
+    /// The username for authenticating with the SMTP server.
     user: String,
+    /// The password for authenticating with the SMTP server.
     pass: String,
+    /// An optional email address to use in the `From` header. If not provided,
+    /// defaults to the value of `user`.
     from: Option<String>,
 }
 
+/// An intermediate struct for parsing configurations for sending emails
+/// using `sendmail`.
 #[derive(Deserialize)]
 struct SendmailConfig {
+    /// The path to use to invoke `sendmail`. If not provided, follows the
+    /// default from the `lettre` crate, currently `/usr/sbin/sendmail`.
     bin: Option<String>,
+    /// The email address to use in the `From` header. Required for use with
+    /// `sendmail`.
     from: String,
 }
 
+/// An enum to help get `serde` to parse one of either kind of `Sender`.
 #[derive(Deserialize)]
 #[serde(untagged)]
 enum SenderConfig {
+    /// An SMTP configuration
     SMTP(SmtpConfig),
+    /// A Sendmail configuration
     Sendmail(SendmailConfig),
 }
 
+/// Helper type for parsing templates into a single `Tera` object.
 struct TemplateVisitor;
 
+/// An enum used by `serde` and the `deserialize_tera` function to parse
+/// templates.
 #[derive(Deserialize)]
 #[serde(field_identifier, rename_all = "lowercase")]
 enum TemplateField {
     To,
-    From,
+    //From,
     Subject,
     Body,
     #[serde(rename = "reply_to")]
@@ -276,15 +306,24 @@ enum TemplateField {
     BCC,
 }
 
+/// The configuration field name for the BCC template
 static FIELD_BCC: &str = "bcc";
+/// The configuration field name for the email body template
 static FIELD_BODY: &str = "body";
+/// The configuration field name for the CC template
 static FIELD_CC: &str = "cc";
-static FIELD_FROM: &str = "from";
+/// The 
+//static FIELD_FROM: &str = "from";
+/// The configuration field name for the Reply-To template
 static FIELD_REPLY_TO: &str = "reply_to";
+/// The configuration field name for the Subject line
 static FIELD_SUBJECT: &str = "subject";
+/// The configuration field name for the To template
 static FIELD_TO: &str = "to";
 
 impl<'de> TemplateVisitor {
+    /// Helper function for parsing a configuration option into an `Option`.
+    /// Returns an `Error` if the `Option` already has a value set.
     fn helper_option<M,V>(map: &mut M, var: &mut Option<V>, name: &'static str) -> Result<(), M::Error> where M: MapAccess<'de>, V: Deserialize<'de> {
         if var.is_some() {
             return Err(de::Error::duplicate_field(name));
@@ -299,6 +338,7 @@ impl<'de> TemplateVisitor {
 }
 
 impl<'de> Visitor<'de> for TemplateVisitor {
+    /// The type that this `Visitor` generates
     type Value = Tera;
 
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
@@ -309,7 +349,7 @@ impl<'de> Visitor<'de> for TemplateVisitor {
         let mut tera = Tera::default();
 
         let mut to = None;
-        let mut from = None;
+        //let mut from = None;
         let mut subject = None;
         let mut body = None;
         let mut reply_to = None;
@@ -324,7 +364,7 @@ impl<'de> Visitor<'de> for TemplateVisitor {
                 TemplateField::ReplyTo => TemplateVisitor::helper_option(&mut map, &mut reply_to, FIELD_REPLY_TO)?,
                 TemplateField::CC => TemplateVisitor::helper_option(&mut map, &mut cc, FIELD_CC)?,
                 TemplateField::BCC => TemplateVisitor::helper_option(&mut map, &mut bcc, FIELD_BCC)?,
-                TemplateField::From => TemplateVisitor::helper_option(&mut map, &mut from, FIELD_FROM)?,
+                //TemplateField::From => TemplateVisitor::helper_option(&mut map, &mut from, FIELD_FROM)?,
             }
         }
 
@@ -345,11 +385,11 @@ impl<'de> Visitor<'de> for TemplateVisitor {
             }
         }
 
-        if let Some(val) = from {
-            if let Err(err) = tera.add_raw_template(FIELD_FROM, val) {
-                return Err(de::Error::custom(err));
-            }
-        }
+        //if let Some(val) = from {
+        //    if let Err(err) = tera.add_raw_template(FIELD_FROM, val) {
+        //        return Err(de::Error::custom(err));
+        //    }
+        //}
 
         if let Some(val) = cc {
             if let Err(err) = tera.add_raw_template(FIELD_CC, val) {
@@ -367,10 +407,12 @@ impl<'de> Visitor<'de> for TemplateVisitor {
     }
 }
 
+/// Parses a map into a `Tera` object.
 fn deserialize_tera<'de, D> (deserializer: D) -> Result<Tera, D::Error> where D: Deserializer<'de> {
     deserializer.deserialize_map(TemplateVisitor)
 }
 
+/// Parses a map into a `Sender`.
 fn deserialize_sender<'de, D> (deserializer: D) -> Result<Sender, D::Error> where D: Deserializer<'de> {
     match SenderConfig::deserialize(deserializer)? {
         SenderConfig::SMTP(smtp) => {
@@ -388,8 +430,10 @@ fn deserialize_sender<'de, D> (deserializer: D) -> Result<Sender, D::Error> wher
     }
 }
 
-impl Config {
-    pub fn to_arc_rwlock(self) -> Arc<RwLock<Config>> {
+impl Handler {
+    /// Takes ownership of this `Handler` and stores it inside of a Tokio
+    /// `RwLock` inside of an `Arc`.
+    pub fn to_arc_rwlock(self) -> Arc<RwLock<Handler>> {
         Arc::new(RwLock::new(self))
     }
 

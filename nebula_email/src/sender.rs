@@ -3,6 +3,7 @@ use lettre::sendmail::{error::SendmailResult, SendmailTransport};
 use lettre::smtp::{error::SmtpResult, SmtpTransport};
 use serde::Deserialize;
 
+/// A wrapper enum for various methods of sending an email.
 pub enum Sender {
     SMTP(SmtpTransport),
     Sendmail(SendmailTransport),

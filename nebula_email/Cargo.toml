@@ -3,6 +3,10 @@ name = "nebula_email"
 version = "0.1.0"
 authors = ["Michael Bryant <shadow53@shadow53.com>"]
 edition = "2018"
+description = ""
+documentation = "https://docs.rs/nebula_email/"
+homepage = "https://bluestnight.com/docs/nebula-forms/users/plugins/email/"
+repository = "https://gitlab.com/BluestNight/nebula"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
