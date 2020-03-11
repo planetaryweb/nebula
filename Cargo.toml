@@ -2,4 +2,5 @@
 members = [
 	"nebula",
 	"nebula_email",
+	"nebula_form",
 ]
