@@ -1,9 +1,15 @@
 use std::collections::HashMap;
+#[cfg(feature = "warp")]
 use std::error::Error;
+#[cfg(feature = "warp")]
 use std::fmt::{self, Display, Formatter};
 use std::str;
-use bytes::{Buf, Bytes};
+#[cfg(feature = "warp")]
+use bytes::Buf;
+use bytes::Bytes;
+#[cfg(feature = "warp")]
 use futures::{StreamExt, TryStreamExt};
+#[cfg(feature = "warp")]
 use futures::stream::Stream;
 #[cfg(feature = "warp")]
 use warp::Filter;
