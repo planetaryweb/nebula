@@ -1,0 +1,24 @@
+[package]
+name = "nebula_status"
+version = "0.1.0"
+authors = ["Michael Bryant <shadow53@shadow53.com>"]
+edition = "2018"
+
+description = "An HTTP status/error type for server applications"
+documentation = "https://docs.rs/nebula_status"
+#homepage = ""
+repository = "https://gitlab.com/BluestNight/nebula"
+readme = "README.md"
+keywords = ["nebula", "http", "status", "error"]
+license = "MPL-2.0"
+maintenance = { status = "actively-developed" }
+
+[features]
+server-warp = ["warp", "hyper"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+http = "0.2"
+hyper = { version = "0.13", optional = true }
+warp = { version = "0.2", optional = true }
