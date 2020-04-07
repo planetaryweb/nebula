@@ -1,13 +1,14 @@
 /// This crate implements a standalone datatype for HTTP status codes. `Status`
-/// allows you to specify a status code by name and associate custom text and
+/// allows you to specify a status code by name and associate custom data and
 /// headers with it, then convert that `Status` into a server response.
 ///
 /// Currently, the only automatic conversion that is supported is for Warp.
 ///
-use std::convert::Infallible;
+use bytes::Bytes;
 pub use http::StatusCode;
-use http::header::{self, HeaderMap, HeaderName, HeaderValue};
-use http::response::{Builder};
+use http::header::{self, HeaderMap, HeaderValue};
+#[cfg(feature = "server-warp")]
+use http::response::Builder;
 #[cfg(feature = "server-warp")]
 use hyper::Body;
 #[cfg(feature = "server-warp")]
@@ -42,6 +43,11 @@ mod tests {
     }
 
     #[test]
+    fn server_error_does_not_contain_error_message() {
+        assert!(false);
+    }
+
+    #[test]
     #[cfg(feature = "server-warp")]
     fn status_rejection_is_a_status() {
         assert!(Status::rejection_is_status(reject::custom(Status::new(&StatusCode::IM_A_TEAPOT))));
@@ -57,53 +63,110 @@ mod tests {
     // - Correctly implements Warp's error type
 }
 
+/// An enumerated list of possible errors returned by this crate and related data.
 pub enum Error {
     #[cfg(feature = "server-warp")]
+    /// The Rejection you attempted to recover is not an instance of Status.
     NotStatus(Rejection)
 }
 
-/// An HTTP status code bundled with an associated message.
+/// An HTTP status code bundled with associated data.
 ///
 ///
+// TODO: Genericize the data member into anything that can be converted into bytes?
 #[derive(Clone, Debug)]
-pub struct Status {
+pub struct Status<T: Into<Bytes> + Clone = String> {
     c: &'static StatusCode,
-    msg: Option<String>,
+    data: Option<T>,
+    data_bytes: Option<Bytes>,
     h: HeaderMap<HeaderValue>,
 }
 
 impl Status {
     pub fn new(code: &'static StatusCode) -> Status {
-        Status { c: code, msg: None, h: HeaderMap::new() }
+        Status { c: code, data: None, data_bytes:None, h: HeaderMap::new() }
     }
 
+    /// Create a new Status with an associated message.
     pub fn with_message(code: &'static StatusCode, msg: String) -> Status {
-        Status { c: code, msg: Some(msg), h: HeaderMap::new() }
+        let mut status = Status::with_data(code, msg);
+        status.headers_mut().insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_str(mime::TEXT_PLAIN_UTF_8.as_ref()).unwrap()
+        );
+        status
     }
 
+    /// Create a new Status with associated arbitrary data.
+    pub fn with_data<T: Into<Bytes> + Clone>(code: &'static StatusCode, data: T) -> Status<T> {
+        Status { c: code, data: Some(data.clone()), data_bytes: Some(data.into()), h: HeaderMap::new() }
+    }
+}
+
+impl<T: Into<Bytes> + Clone> Status<T> {
+
+    /// Gain a reference to this Status' status code.
     pub fn code(&self) -> &StatusCode {
         &self.c
     }
 
-    pub fn message(&self) -> Option<&str> {
-        self.msg.as_ref().map(|x| x.as_str())
+    /// Attempts to parse the bytes contained within the Status as a &str.
+    fn data_as_message(&self) -> Option<&str> {
+        // If there is data and it can successfully be parsed as a string,
+        // return the parsed string. Otherwise, return None, ignoring any
+        // errors while parsing.
+        match self.data_bytes.as_ref() {
+            None => None,
+            Some(data) => std::str::from_utf8(data.as_ref()).ok(),
+        }
     }
 
+    /// Attempts to parse the data contained in this Status as a &str.
+    ///
+    /// The `Content-Type` header is used to help determine if the data is meant
+    /// to be parsed as text or not.
+    pub fn message(&self) -> Option<&str> {
+        if self.h.contains_key(header::CONTENT_TYPE) {
+            match self.h.get(header::CONTENT_TYPE).unwrap().to_str() {
+                Err(_) => None,
+                Ok(content_type) => match content_type.parse::<mime::Mime>().ok() {
+                    None => None,
+                    Some(mime_type) => match mime_type.type_() {
+                        mime::TEXT => self.data_as_message(),
+                        _ => if mime_type == mime::APPLICATION_JSON {
+                            self.data_as_message()
+                        } else {
+                            None
+                        },
+                    },
+                }
+            }
+        } else {
+            None
+        }
+    }
+    
+    /// Gain an immutable view into the headers map.
     pub fn headers(&self) -> &HeaderMap<HeaderValue> {
         &self.h
     }
 
+    /// Gain a mutable reference to the headers map.
     pub fn headers_mut(&mut self) -> &mut HeaderMap<HeaderValue> {
         &mut self.h
     }
 
     #[cfg(feature = "server-warp")]
-    pub fn rejection_is_status(err: Rejection) -> bool {
+    /// Returns `true` if the warp Rejection is an instance of Status.
+    pub fn rejection_is_status(err: &Rejection) -> bool {
         err.find::<Self>().is_some()
     }
 
     #[cfg(feature = "server-warp")]
-    pub fn recover(err: Rejection) -> Result<impl Reply, Error> {
+    /// Attempts to recover the Rejection as an instnace of Status. Returns
+    /// Error::NotStatus if the Rejection does not implement Status.
+    // TODO: Example usage
+    pub fn recover(err: Rejection) -> std::result::Result<impl Reply, Error> {
         err.find::<Self>().map(|stat| stat.clone()).ok_or(Error::NotStatus(err))
     }
 }
@@ -124,6 +187,20 @@ impl std::fmt::Display for Status {
 }
 
 impl std::error::Error for Status {}
+
+/// Since Status can represent both success and failure, this type alias makes it
+/// easier to return Status inside of a Result.
+type Result = std::result::Result<Status, Status>;
+
+impl From<Status> for Result {
+    fn from(s: Status) -> Result {
+        if s.code().as_u16() < 400 {
+            Ok(s)
+        } else {
+            Err(s)
+        }
+    }
+}
 
 #[cfg(feature = "server-warp")]
 impl From<Status> for Response {
