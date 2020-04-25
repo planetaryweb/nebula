@@ -1,21 +1,22 @@
+use bytes::Bytes;
+use http::header::{self, HeaderMap, HeaderValue};
+#[cfg(feature = "server-warp")]
+use http::response::Builder;
+pub use http::StatusCode;
+#[cfg(feature = "server-warp")]
+use hyper::Body;
 /// This crate implements a standalone datatype for HTTP status codes. `Status`
 /// allows you to specify a status code by name and associate custom data and
 /// headers with it, then convert that `Status` into a server response.
 ///
 /// Currently, the only automatic conversion that is supported is for Warp.
 ///
-use bytes::Bytes;
-pub use http::StatusCode;
-use http::header::{self, HeaderMap, HeaderValue};
-#[cfg(feature = "server-warp")]
-use http::response::Builder;
-#[cfg(feature = "server-warp")]
-use hyper::Body;
+use std::fmt::Debug;
 #[cfg(feature = "server-warp")]
 use warp::{
     reject::{self, Reject, Rejection},
     reply::{Reply, Response},
-    Filter
+    Filter,
 };
 
 #[cfg(test)]
@@ -24,12 +25,18 @@ mod tests {
     // To test:
     #[test]
     fn new_status_contains_correct_code() {
-        assert_eq!(Status::new(&StatusCode::IM_A_TEAPOT).code(), &StatusCode::IM_A_TEAPOT);
+        assert_eq!(
+            Status::new(&StatusCode::IM_A_TEAPOT).code(),
+            &StatusCode::IM_A_TEAPOT
+        );
     }
 
     #[test]
     fn new_status_contains_correct_specified_message() {
-        assert_eq!(Status::with_message(&StatusCode::IM_A_TEAPOT, String::from("foobar")).message(), Some("foobar"));
+        assert_eq!(
+            Status::with_message(&StatusCode::IM_A_TEAPOT, String::from("foobar")).message(),
+            Some("foobar")
+        );
     }
 
     #[test]
@@ -44,13 +51,19 @@ mod tests {
 
     #[test]
     fn server_error_does_not_contain_error_message() {
-        assert!(false);
+        let server_msg = "foobar";
+        let status =
+            Status::with_message(&StatusCode::INTERNAL_SERVER_ERROR, String::from(server_msg));
+        let client_msg = status.to_string();
+        assert!(!client_msg.contains(server_msg));
     }
 
     #[test]
     #[cfg(feature = "server-warp")]
     fn status_rejection_is_a_status() {
-        assert!(Status::rejection_is_status(reject::custom(Status::new(&StatusCode::IM_A_TEAPOT))));
+        assert!(Status::rejection_is_status(reject::custom(Status::new(
+            &StatusCode::IM_A_TEAPOT
+        ))));
     }
 
     #[test]
@@ -67,15 +80,21 @@ mod tests {
 pub enum Error {
     #[cfg(feature = "server-warp")]
     /// The Rejection you attempted to recover is not an instance of Status.
-    NotStatus(Rejection)
+    NotStatus(Rejection),
 }
+
+pub trait StatusData: Into<Bytes> + Clone + Debug + Send + Sync {}
+impl<T: Into<Bytes> + Clone + Debug + Send + Sync> StatusData for T {}
 
 /// An HTTP status code bundled with associated data.
 ///
 ///
 // TODO: Genericize the data member into anything that can be converted into bytes?
 #[derive(Clone, Debug)]
-pub struct Status<T: Into<Bytes> + Clone = String> {
+pub struct Status<T = String>
+where
+    T: StatusData,
+{
     c: &'static StatusCode,
     data: Option<T>,
     data_bytes: Option<Bytes>,
@@ -84,7 +103,12 @@ pub struct Status<T: Into<Bytes> + Clone = String> {
 
 impl Status {
     pub fn new(code: &'static StatusCode) -> Status {
-        Status { c: code, data: None, data_bytes:None, h: HeaderMap::new() }
+        Status {
+            c: code,
+            data: None,
+            data_bytes: None,
+            h: HeaderMap::new(),
+        }
     }
 
     /// Create a new Status with an associated message.
@@ -92,19 +116,23 @@ impl Status {
         let mut status = Status::with_data(code, msg);
         status.headers_mut().insert(
             header::CONTENT_TYPE,
-            HeaderValue::from_str(mime::TEXT_PLAIN_UTF_8.as_ref()).unwrap()
+            HeaderValue::from_str(mime::TEXT_PLAIN_UTF_8.as_ref()).unwrap(),
         );
         status
     }
 
     /// Create a new Status with associated arbitrary data.
-    pub fn with_data<T: Into<Bytes> + Clone>(code: &'static StatusCode, data: T) -> Status<T> {
-        Status { c: code, data: Some(data.clone()), data_bytes: Some(data.into()), h: HeaderMap::new() }
+    pub fn with_data<T: StatusData>(code: &'static StatusCode, data: T) -> Status<T> {
+        Status {
+            c: code,
+            data: Some(data.clone()),
+            data_bytes: Some(data.into()),
+            h: HeaderMap::new(),
+        }
     }
 }
 
-impl<T: Into<Bytes> + Clone> Status<T> {
-
+impl<T: StatusData> Status<T> {
     /// Gain a reference to this Status' status code.
     pub fn code(&self) -> &StatusCode {
         &self.c
@@ -133,19 +161,21 @@ impl<T: Into<Bytes> + Clone> Status<T> {
                     None => None,
                     Some(mime_type) => match mime_type.type_() {
                         mime::TEXT => self.data_as_message(),
-                        _ => if mime_type == mime::APPLICATION_JSON {
-                            self.data_as_message()
-                        } else {
-                            None
-                        },
+                        _ => {
+                            if mime_type == mime::APPLICATION_JSON {
+                                self.data_as_message()
+                            } else {
+                                None
+                            }
+                        }
                     },
-                }
+                },
             }
         } else {
             None
         }
     }
-    
+
     /// Gain an immutable view into the headers map.
     pub fn headers(&self) -> &HeaderMap<HeaderValue> {
         &self.h
@@ -167,11 +197,13 @@ impl<T: Into<Bytes> + Clone> Status<T> {
     /// Error::NotStatus if the Rejection does not implement Status.
     // TODO: Example usage
     pub fn recover(err: Rejection) -> std::result::Result<impl Reply, Error> {
-        err.find::<Self>().map(|stat| stat.clone()).ok_or(Error::NotStatus(err))
+        err.find::<Self>()
+            .map(|stat| stat.clone())
+            .ok_or(Error::NotStatus(err))
     }
 }
 
-impl std::fmt::Display for Status {
+impl<T: StatusData> std::fmt::Display for Status<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.message() {
             None => write!(f, "{}", self.code()),
@@ -181,19 +213,15 @@ impl std::fmt::Display for Status {
                 } else {
                     write!(f, "{}", self.code())
                 }
-            },
+            }
         }
     }
 }
 
-impl std::error::Error for Status {}
+impl<T: StatusData> std::error::Error for Status<T> {}
 
-/// Since Status can represent both success and failure, this type alias makes it
-/// easier to return Status inside of a Result.
-type Result = std::result::Result<Status, Status>;
-
-impl From<Status> for Result {
-    fn from(s: Status) -> Result {
+impl<T: StatusData> From<Status<T>> for Result<Status<T>, Status<T>> {
+    fn from(s: Status<T>) -> Result<Status<T>, Status<T>> {
         if s.code().as_u16() < 400 {
             Ok(s)
         } else {
@@ -203,10 +231,9 @@ impl From<Status> for Result {
 }
 
 #[cfg(feature = "server-warp")]
-impl From<Status> for Response {
-    fn from(s: Status) -> Response {
-        let mut build = Builder::new()
-            .status(s.code());
+impl<T: StatusData> From<Status<T>> for Response {
+    fn from(s: Status<T>) -> Response {
+        let mut build = Builder::new().status(s.code());
 
         for (key, val) in s.headers().iter() {
             build = build.header(key, val)
@@ -217,18 +244,19 @@ impl From<Status> for Response {
         // and HeaderName/HeaderValue types are taken directly from the same crate
         // that implements this Builder. Further, creating the hyper Body should
         // not error either.
-        match s.msg {
+        match s.data_bytes {
             None => build.body(Body::empty()),
             Some(m) => build.body(Body::from(m)),
-        }.unwrap()
+        }
+        .unwrap()
     }
 }
 
 #[cfg(feature = "server-warp")]
-impl Reject for Status {}
+impl<T: StatusData> Reject for Status<T> {}
 
 #[cfg(feature = "server-warp")]
-impl Reply for Status {
+impl<T: StatusData> Reply for Status<T> {
     fn into_response(self) -> Response {
         self.into()
     }
