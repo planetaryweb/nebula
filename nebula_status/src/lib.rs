@@ -83,12 +83,15 @@ pub enum Error {
     NotStatus(Rejection),
 }
 
+/// A trait alias for marking associated date with the traits necessary to be
+/// used.
 pub trait StatusData: Into<Bytes> + Clone + Debug + Send + Sync {}
 impl<T: Into<Bytes> + Clone + Debug + Send + Sync> StatusData for T {}
 
 /// An HTTP status code bundled with associated data.
 ///
-///
+/// Code that creates a new instance of Status should set any related response
+/// headers before returning it.
 // TODO: Genericize the data member into anything that can be converted into bytes?
 #[derive(Clone, Debug)]
 pub struct Status<T = String>
@@ -102,6 +105,8 @@ where
 }
 
 impl Status {
+    /// Create a new Status without any associated data. This will be converted to
+    /// the specified status code with associated headers and no body.
     pub fn new(code: &'static StatusCode) -> Status {
         Status {
             c: code,
@@ -111,7 +116,8 @@ impl Status {
         }
     }
 
-    /// Create a new Status with an associated message.
+    /// Create a new Status with associated data of type String. Useful for
+    /// returning basic error messages.
     pub fn with_message(code: &'static StatusCode, msg: String) -> Status {
         let mut status = Status::with_data(code, msg);
         status.headers_mut().insert(
@@ -121,7 +127,8 @@ impl Status {
         status
     }
 
-    /// Create a new Status with associated arbitrary data.
+    /// Create a new Status with associated arbitrary data. Useful for
+    /// returning a struct that can be serialized into e.g. JSON.
     pub fn with_data<T: StatusData>(code: &'static StatusCode, data: T) -> Status<T> {
         Status {
             c: code,
