@@ -1,30 +1,31 @@
+#[cfg(feature = "warp")]
+use bytes::Buf;
+use bytes::Bytes;
+#[cfg(feature = "warp")]
+use futures::stream::Stream;
+#[cfg(feature = "warp")]
+use futures::{StreamExt, TryStreamExt};
+use nebula_status::{Status, StatusCode};
 use std::collections::HashMap;
 #[cfg(feature = "warp")]
 use std::error::Error;
 #[cfg(feature = "warp")]
 use std::fmt::{self, Display, Formatter};
 use std::str;
-#[cfg(feature = "warp")]
-use bytes::Buf;
-use bytes::Bytes;
-#[cfg(feature = "warp")]
-use futures::{StreamExt, TryStreamExt};
-#[cfg(feature = "warp")]
-use futures::stream::Stream;
-#[cfg(feature = "warp")]
-use warp::Filter;
+use urlencoding;
 #[cfg(feature = "warp")]
 use warp::filters::multipart::{FormData, Part};
 #[cfg(feature = "warp")]
 use warp::reject::{Reject, Rejection};
-use urlencoding;
+#[cfg(feature = "warp")]
+use warp::Filter;
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
     #[cfg(feature = "warp")]
     use futures::executor::block_on;
+    use std::collections::HashMap;
 
     fn get_foo(boundary: &[u8]) -> (Vec<u8>, HashMap<String, String>) {
         let mut expected = Vec::new();
@@ -58,17 +59,22 @@ mod tests {
         let mut expected = Vec::new();
         expected.extend_from_slice(b"--");
         expected.extend_from_slice(boundary);
-        expected.extend_from_slice(b"\r\nContent-Disposition: form-data; name=\"baz\"; filename=\"baz.txt\"");
+        expected.extend_from_slice(
+            b"\r\nContent-Disposition: form-data; name=\"baz\"; filename=\"baz.txt\"",
+        );
         expected.extend_from_slice(b"\r\nContent-type: text/plain");
         expected.extend_from_slice(b"\r\n\r\nBaz is a text file with this content.");
         expected.extend_from_slice(b"\r\n");
 
         let mut hash = HashMap::new();
-        hash.insert(String::from("baz"), Field::File(FormFile {
-            filename: String::from("baz.txt"),
-            content_type: String::from("text/plain"),
-            bytes: Bytes::from_static(b"Baz is a text file with this content."),
-        }));
+        hash.insert(
+            String::from("baz"),
+            Field::File(FormFile {
+                filename: String::from("baz.txt"),
+                content_type: String::from("text/plain"),
+                bytes: Bytes::from_static(b"Baz is a text file with this content."),
+            }),
+        );
 
         (expected, hash)
     }
@@ -96,9 +102,15 @@ mod tests {
 
         let result = form.to_multipart_bytes(boundary);
 
-        assert!(result.as_slice().windows(foo_bytes.len()).any(|win| win == foo_bytes.as_slice()));
+        assert!(result
+            .as_slice()
+            .windows(foo_bytes.len())
+            .any(|win| win == foo_bytes.as_slice()));
 
-        assert!(result.as_slice().windows(bar_bytes.len()).any(|win| win == bar_bytes.as_slice()));
+        assert!(result
+            .as_slice()
+            .windows(bar_bytes.len())
+            .any(|win| win == bar_bytes.as_slice()));
 
         assert_eq!(&result[(result.len() - end.len())..], end.as_slice());
 
@@ -120,9 +132,15 @@ mod tests {
 
         let result = form.to_multipart_bytes(boundary);
 
-        assert!(result.as_slice().windows(foo_bytes.len()).any(|win| win == foo_bytes.as_slice()));
+        assert!(result
+            .as_slice()
+            .windows(foo_bytes.len())
+            .any(|win| win == foo_bytes.as_slice()));
 
-        assert!(result.as_slice().windows(baz_bytes.len()).any(|win| win == baz_bytes.as_slice()));
+        assert!(result
+            .as_slice()
+            .windows(baz_bytes.len())
+            .any(|win| win == baz_bytes.as_slice()));
 
         assert_eq!(&result[(result.len() - end.len())..], end.as_slice());
 
@@ -154,12 +172,14 @@ mod tests {
 
     #[cfg(feature = "warp")]
     fn mock_warp_request(boundary: &str, body: &[u8]) -> Form {
-        let filter = warp::filters::multipart::form()
-                         .map(|data| Form::try_from_formdata(data));
+        let filter = warp::filters::multipart::form().map(|data| Form::try_from_formdata(data));
 
         let result = warp::test::request()
             .method("POST")
-            .header("Content-Type", format!("multipart/form-data; boundary={}", boundary))
+            .header(
+                "Content-Type",
+                format!("multipart/form-data; boundary={}", boundary),
+            )
             .header("Content-Length", format!("{}", body.len()))
             .body(body)
             .filter(&filter);
@@ -201,15 +221,21 @@ mod tests {
 
         for (key, val) in fields.iter() {
             match val {
-                Field::Text(val) => assert!(qstr.contains(&String::from(format!("{}={}", key, val)))),
+                Field::Text(val) => {
+                    assert!(qstr.contains(&String::from(format!("{}={}", key, val))))
+                }
                 Field::File(_) => assert!(false),
             }
         }
 
-        let fields_len: usize = fields.iter()
-            .map(|(key, val)| key.len() + match val {
-                Field::Text(val) => val.len(),
-                Field::File(_) => panic!("there should not be a Form::Field here"),
+        let fields_len: usize = fields
+            .iter()
+            .map(|(key, val)| {
+                key.len()
+                    + match val {
+                        Field::Text(val) => val.len(),
+                        Field::File(_) => panic!("there should not be a Form::Field here"),
+                    }
             })
             .sum();
 
@@ -239,7 +265,10 @@ mod tests {
         let filter = form_filter();
         let req = warp::test::request()
             .method("POST")
-            .header("Content-Type", format!("multipart/form-data; boundary={}", boundary))
+            .header(
+                "Content-Type",
+                format!("multipart/form-data; boundary={}", boundary),
+            )
             .body(multipart.to_multipart_bytes(boundary.as_bytes()))
             .filter(&filter);
         assert_eq!(block_on(req).unwrap(), multipart);
@@ -252,7 +281,10 @@ mod tests {
         let filter = form_filter();
         let req = warp::test::request()
             .method("POST")
-            .header("Content-Type", format!("multipart/form-data; boundary={}", boundary))
+            .header(
+                "Content-Type",
+                format!("multipart/form-data; boundary={}", boundary),
+            )
             .body(multipart.to_multipart_bytes(boundary.as_bytes()))
             .filter(&filter);
         assert_eq!(block_on(req).unwrap(), multipart);
@@ -295,34 +327,46 @@ impl Field {
     /// streamed.
     ///
     /// Requires `features = "warp"`.
-    async fn buf_to_bytes(strm: impl Stream<Item = Result<impl Buf, warp::Error>>) -> Result<Bytes, warp::Error> {
-        Ok(Bytes::from(strm.try_fold(Vec::new(), |mut vec, data| {
-            vec.extend_from_slice(data.bytes());
-            async move { Ok(vec) }
-        }).await?))
+    async fn buf_to_bytes(
+        strm: impl Stream<Item = Result<impl Buf, warp::Error>>,
+    ) -> Result<Bytes, warp::Error> {
+        Ok(Bytes::from(
+            strm.try_fold(Vec::new(), |mut vec, data| {
+                vec.extend_from_slice(data.bytes());
+                async move { Ok(vec) }
+            })
+            .await?,
+        ))
     }
 
     #[cfg(feature = "warp")]
     /// Attempts to create a `Field` instance from the provided `Part`.
     ///
     /// Requires `features = "warp"`.
-    pub async fn try_from_async(part: Part) -> Result<(String, Self), String> {
+    pub async fn try_from_async(part: Part) -> Result<(String, Self), Status<String>> {
         let name = part.name().to_string();
         let filename = part.filename().map(|f| f.to_string());
         let content_type = part.content_type().map(|c| c.to_string());
 
-        let content = Self::buf_to_bytes(part.stream()).await
-            .map_err(|e| e.to_string())?;
+        let content = Self::buf_to_bytes(part.stream())
+            .await
+            .map_err(|e| Status::with_message(&StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
         let filename = match filename {
-            None => return String::from_utf8(content.to_vec())
-                .map(|s| (name, Field::Text(s)))
-                .map_err(|e| e.to_string()),
+            None => {
+                return String::from_utf8(content.to_vec())
+                    .map(|s| (name, Field::Text(s)))
+                    .map_err(|e| {
+                        Status::with_message(&StatusCode::UNSUPPORTED_MEDIA_TYPE, e.to_string())
+                    })
+            }
             Some(f) => f,
         };
 
-        let content_type = content_type
-            .ok_or("form field has filename but no content type".to_string())?;
+        let content_type = content_type.ok_or(Status::with_message(
+            &StatusCode::BAD_REQUEST,
+            "form field has filename but no content type".to_string(),
+        ))?;
 
         let field = Field::File(FormFile {
             filename,
@@ -373,7 +417,7 @@ impl Form {
 
     /// Append the contents of a map to the current `Form`. Fields that already
     /// exist will be overwritten.
-    pub fn extend(&mut self, iter: impl Iterator<Item=(String, Field)>) {
+    pub fn extend(&mut self, iter: impl Iterator<Item = (String, Field)>) {
         for (name, field) in iter {
             self.insert(&name, field);
         }
@@ -382,10 +426,8 @@ impl Form {
     /// Append the contents of a map to the current `Form`, converting the
     /// `String` values to a `Field::Text`. Fields that already exist will
     /// be overwritten.
-    pub fn extend_from_strings(&mut self, iter: impl Iterator<Item=(String, String)>) {
-        self.extend(
-            iter.map(|(k, v)| (k, Field::Text(v)))
-        );
+    pub fn extend_from_strings(&mut self, iter: impl Iterator<Item = (String, String)>) {
+        self.extend(iter.map(|(k, v)| (k, Field::Text(v))));
     }
 
     // Information getters
@@ -408,12 +450,12 @@ impl Form {
     // Iteration
 
     /// Returns an iterator over every field in the form.
-    pub fn iter(&self) -> impl Iterator<Item=(&String, &Field)> {
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &Field)> {
         self.0.iter()
     }
 
     /// Returns an iterator over every text field in the form.
-    pub fn iter_text(&self) -> impl Iterator<Item=(&String, &Field)> {
+    pub fn iter_text(&self) -> impl Iterator<Item = (&String, &Field)> {
         self.iter().filter(|(_name, field)| match field {
             Field::Text(_) => true,
             Field::File(_) => false,
@@ -421,7 +463,7 @@ impl Form {
     }
 
     /// Returns an iterator over every file field in the form.
-    pub fn iter_files(&self) -> impl Iterator<Item=(&String, &Field)> {
+    pub fn iter_files(&self) -> impl Iterator<Item = (&String, &Field)> {
         self.iter().filter(|(_name, field)| match field {
             Field::Text(_) => false,
             Field::File(_) => true,
@@ -463,7 +505,7 @@ impl Form {
                 Field::Text(txt) => {
                     buf.extend_from_slice(b"\"\r\n\r\n");
                     buf.extend_from_slice(txt.as_bytes());
-                },
+                }
                 Field::File(file) => {
                     buf.extend_from_slice(b"\"; filename=\"");
                     buf.extend_from_slice(file.filename.as_bytes());
@@ -489,12 +531,17 @@ impl Form {
     /// from its contents.
     ///
     /// Requires `features = "warp"`.
-    async fn try_from_formdata(mut data: FormData) -> Result<Self, String> {
+    async fn try_from_formdata(mut data: FormData) -> Result<Self, Status<String>> {
         let mut form = Form::new();
 
         while let Some(part) = data.next().await {
             match part {
-                Err(err) => return Err(err.to_string()),
+                Err(err) => {
+                    return Err(Status::with_message(
+                        &StatusCode::INTERNAL_SERVER_ERROR,
+                        err.to_string(),
+                    ))
+                }
                 Ok(part) => {
                     let (name, field) = Field::try_from_async(part).await?;
                     form.insert(&name, field)
@@ -548,14 +595,14 @@ impl Reject for RejectionWrapper {}
 ///
 /// Requires `features = "warp"`.
 pub fn form_filter() -> impl Filter<Extract = (Form,), Error = Rejection> {
-    warp::filters::body::form().map(|f: HashMap<String, String>| Form::from(f))
+    warp::filters::body::form()
+        .map(|f: HashMap<String, String>| Form::from(f))
         .or(
             warp::filters::multipart::form().and_then(|f: FormData| async move {
-                    match Form::try_from_formdata(f).await {
-                        Ok(form) => Ok(form),
-                        Err(err) => Err(warp::reject::custom(RejectionWrapper{msg: err.to_string()}))
-                    }
-                }
-            )
-        ).unify()
+                Form::try_from_formdata(f)
+                    .await
+                    .map_err(|e| warp::reject::custom(e))
+            }),
+        )
+        .unify()
 }
