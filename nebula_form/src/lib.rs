@@ -595,7 +595,7 @@ impl Reject for RejectionWrapper {}
 /// `Form` object.
 ///
 /// Requires `features = "server-warp"`.
-pub fn form_filter() -> impl Filter<Extract = (Form,), Error = Rejection> {
+pub fn form_filter() -> impl Filter<Extract = (Form,), Error = Rejection> + Clone {
     warp::filters::body::form()
         .map(|f: HashMap<String, String>| Form::from(f))
         .or(
