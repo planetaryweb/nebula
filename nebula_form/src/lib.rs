@@ -1,5 +1,3 @@
-#[cfg(feature = "server-warp")]
-use bytes::Buf;
 use bytes::Bytes;
 #[cfg(feature = "server-warp")]
 use futures::stream::Stream;
@@ -7,6 +5,7 @@ use futures::stream::Stream;
 use futures::{StreamExt, TryStreamExt};
 #[cfg(feature = "server-warp")]
 use bytes::Buf;
+#[cfg(feature = "server-warp")]
 use nebula_status::{Status, StatusCode};
 use std::collections::HashMap;
 #[cfg(feature = "server-warp")]
