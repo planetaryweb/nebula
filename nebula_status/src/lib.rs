@@ -104,7 +104,7 @@ impl Into<Bytes> for Empty {
 /// headers before returning it.
 // TODO: Genericize the data member into anything that can be converted into bytes?
 #[derive(Clone, Debug)]
-pub struct Status<T = String>
+pub struct Status<T = Empty>
 where
     T: StatusData,
 {
