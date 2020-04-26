@@ -14,14 +14,14 @@ use hyper::Body;
 use std::fmt::Debug;
 #[cfg(feature = "server-warp")]
 use warp::{
-    reject::{self, Reject, Rejection},
+    reject::{Reject, Rejection},
     reply::{Reply, Response},
-    Filter,
 };
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use warp::reject;
     // To test:
     #[test]
     fn new_status_contains_correct_code() {
@@ -61,7 +61,7 @@ mod tests {
     #[test]
     #[cfg(feature = "server-warp")]
     fn status_rejection_is_a_status() {
-        assert!(Status::rejection_is_status(reject::custom(Status::new(
+        assert!(Status::<Empty>::rejection_is_status(&reject::custom(Status::new(
             &StatusCode::IM_A_TEAPOT
         ))));
     }
@@ -69,7 +69,7 @@ mod tests {
     #[test]
     #[cfg(feature = "server-warp")]
     fn non_status_rejection_is_not_status() {
-        assert!(!Status::rejection_is_status(warp::reject::not_found()));
+        assert!(!Status::<Empty>::rejection_is_status(&reject::not_found()));
     }
 
     // - 5xx status does not reveal error message to client
@@ -85,8 +85,18 @@ pub enum Error {
 
 /// A trait alias for marking associated date with the traits necessary to be
 /// used.
-pub trait StatusData: Into<Bytes> + Clone + Debug + Send + Sync {}
-impl<T: Into<Bytes> + Clone + Debug + Send + Sync> StatusData for T {}
+pub trait StatusData: Into<Bytes> + Clone + Debug + Send + Sync + 'static {}
+impl<T: Into<Bytes> + Clone + Debug + Send + Sync + 'static> StatusData for T {}
+
+/// An empty type used by a Status without associated data.
+#[derive(Clone, Debug)]
+pub struct Empty;
+
+impl Into<Bytes> for Empty {
+    fn into(self) -> Bytes {
+        Bytes::new()
+    }
+}
 
 /// An HTTP status code bundled with associated data.
 ///
@@ -107,7 +117,7 @@ where
 impl Status {
     /// Create a new Status without any associated data. This will be converted to
     /// the specified status code with associated headers and no body.
-    pub fn new(code: &'static StatusCode) -> Status {
+    pub fn new(code: &'static StatusCode) -> Status<Empty> {
         Status {
             c: code,
             data: None,
@@ -118,7 +128,7 @@ impl Status {
 
     /// Create a new Status with associated data of type String. Useful for
     /// returning basic error messages.
-    pub fn with_message(code: &'static StatusCode, msg: String) -> Status {
+    pub fn with_message(code: &'static StatusCode, msg: String) -> Status<String> {
         let mut status = Status::with_data(code, msg);
         status.headers_mut().insert(
             header::CONTENT_TYPE,
