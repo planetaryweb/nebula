@@ -23,6 +23,7 @@ use urlencoding;
 mod tests {
     use super::*;
     use std::collections::HashMap;
+    #[cfg(feature = "warp")]
     use futures::executor::block_on;
 
     fn get_foo(boundary: &[u8]) -> (Vec<u8>, HashMap<String, String>) {
@@ -128,6 +129,7 @@ mod tests {
         assert_eq!(result.len(), foo_bytes.len() + baz_bytes.len() + end.len());
     }
 
+    #[cfg(feature = "warp")]
     fn mock_form(with_files: bool) -> (String, Form) {
         let boundary = "------mockboundaryvalue";
 
@@ -167,6 +169,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "warp")]
     fn multipart_try_from_no_files() {
         let (boundary, form) = mock_form(false);
         let body = form.to_multipart_bytes(boundary.as_bytes());
@@ -177,6 +180,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "warp")]
     fn multipart_try_from_files() {
         let (boundary, form) = mock_form(true);
         let body = form.to_multipart_bytes(boundary.as_bytes());
@@ -303,40 +307,35 @@ impl Field {
     ///
     /// Requires `features = "warp"`.
     pub async fn try_from_async(part: Part) -> Result<(String, Self), String> {
-        let name = String::from(part.name());
+        let name = part.name().to_string();
         let filename = part.filename().map(|f| f.to_string());
         let content_type = part.content_type().map(|c| c.to_string());
 
-        let content = match Self::buf_to_bytes(part.stream()).await {
-            Ok(content) => content,
-            Err(err) => return Err(String::from(err.description())),
+        let content = Self::buf_to_bytes(part.stream()).await
+            .map_err(|e| e.to_string())?;
+
+        let filename = match filename {
+            None => return String::from_utf8(content.to_vec())
+                .map(|s| (name, Field::Text(s)))
+                .map_err(|e| e.to_string()),
+            Some(f) => f,
         };
 
-        match filename {
-            None => {
-                match String::from_utf8(content.to_vec()) {
-                    Ok(s) => Ok((name, Field::Text(s))),
-                    Err(e) => Err(String::from(e.description())),
-                }
-            },
-            Some(filename) => {
-                match content_type {
-                    None => Err("form field has filename but no content type".to_string()),
-                    Some(content_type) => {
-                        Ok((name, Field::File(FormFile {
-                            filename: String::from(filename),
-                            content_type: String::from(content_type),
-                            bytes: content,
-                        })))
-                    }
-                }
-            }
-        }
+        let content_type = content_type
+            .ok_or("form field has filename but no content type".to_string())?;
+
+        let field = Field::File(FormFile {
+            filename,
+            content_type,
+            bytes: content,
+        });
+
+        Ok((name, field))
     }
 }
 
 /// Represents the entire contents of a submitted form.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Default, PartialEq)]
 pub struct Form(HashMap<String, Field>);
 
 impl Form {
@@ -437,11 +436,11 @@ impl Form {
 
         for (name, val) in &self.0 {
             match val {
-                Field::File(_) => return Err(String::from(format!("Cannot include field {} as text", name))),
+                Field::File(_) => return Err(format!("Cannot include field {} as text", name)),
                 Field::Text(txt) => {
                     let enc_key = urlencoding::encode(name);
                     let enc_val = urlencoding::encode(&txt);
-                    builder.push(String::from(format!("{}={}", enc_key, enc_val)));
+                    builder.push(format!("{}={}", enc_key, enc_val));
                 }
             }
         }
@@ -495,7 +494,7 @@ impl Form {
 
         while let Some(part) = data.next().await {
             match part {
-                Err(err) => return Err(String::from(err.description())),
+                Err(err) => return Err(err.to_string()),
                 Ok(part) => {
                     let (name, field) = Field::try_from_async(part).await?;
                     form.insert(&name, field)
@@ -534,10 +533,6 @@ impl Display for RejectionWrapper {
 
 #[cfg(feature = "warp")]
 impl Error for RejectionWrapper {
-    fn description(&self) -> &str {
-        &self.msg
-    }
-
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         None
     }
