@@ -1,29 +1,31 @@
-#[cfg(feature = "warp")]
+#[cfg(feature = "server-warp")]
 use bytes::Buf;
 use bytes::Bytes;
-#[cfg(feature = "warp")]
+#[cfg(feature = "server-warp")]
 use futures::stream::Stream;
-#[cfg(feature = "warp")]
+#[cfg(feature = "server-warp")]
 use futures::{StreamExt, TryStreamExt};
+#[cfg(feature = "server-warp")]
+use bytes::Buf;
 use nebula_status::{Status, StatusCode};
 use std::collections::HashMap;
-#[cfg(feature = "warp")]
+#[cfg(feature = "server-warp")]
 use std::error::Error;
-#[cfg(feature = "warp")]
+#[cfg(feature = "server-warp")]
 use std::fmt::{self, Display, Formatter};
 use std::str;
 use urlencoding;
-#[cfg(feature = "warp")]
+#[cfg(feature = "server-warp")]
 use warp::filters::multipart::{FormData, Part};
-#[cfg(feature = "warp")]
+#[cfg(feature = "server-warp")]
 use warp::reject::{Reject, Rejection};
-#[cfg(feature = "warp")]
+#[cfg(feature = "server-warp")]
 use warp::Filter;
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(feature = "warp")]
+    #[cfg(feature = "server-warp")]
     use futures::executor::block_on;
     use std::collections::HashMap;
 
@@ -147,7 +149,7 @@ mod tests {
         assert_eq!(result.len(), foo_bytes.len() + baz_bytes.len() + end.len());
     }
 
-    #[cfg(feature = "warp")]
+    #[cfg(feature = "server-warp")]
     fn mock_form(with_files: bool) -> (String, Form) {
         let boundary = "------mockboundaryvalue";
 
@@ -170,7 +172,7 @@ mod tests {
         (String::from(boundary), form)
     }
 
-    #[cfg(feature = "warp")]
+    #[cfg(feature = "server-warp")]
     fn mock_warp_request(boundary: &str, body: &[u8]) -> Form {
         let filter = warp::filters::multipart::form().map(|data| Form::try_from_formdata(data));
 
@@ -189,7 +191,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "warp")]
+    #[cfg(feature = "server-warp")]
     fn multipart_try_from_no_files() {
         let (boundary, form) = mock_form(false);
         let body = form.to_multipart_bytes(boundary.as_bytes());
@@ -200,7 +202,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "warp")]
+    #[cfg(feature = "server-warp")]
     fn multipart_try_from_files() {
         let (boundary, form) = mock_form(true);
         let body = form.to_multipart_bytes(boundary.as_bytes());
@@ -246,7 +248,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "warp")]
+    #[cfg(feature = "server-warp")]
     fn wrap_form_form_fields() {
         let (_, urlenc_form) = mock_form(false);
         let filter = form_filter();
@@ -259,7 +261,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "warp")]
+    #[cfg(feature = "server-warp")]
     fn wrap_form_multipart_no_file() {
         let (boundary, multipart) = mock_form(false);
         let filter = form_filter();
@@ -275,7 +277,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "warp")]
+    #[cfg(feature = "server-warp")]
     fn wrap_form_multipart_with_file() {
         let (boundary, multipart) = mock_form(true);
         let filter = form_filter();
@@ -291,7 +293,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "warp")]
+    #[cfg(feature = "server-warp")]
     fn wrap_form_multipart_failure() {
         // Not sure how to test this...
     }
@@ -322,11 +324,11 @@ pub enum Field {
 }
 
 impl Field {
-    #[cfg(feature = "warp")]
+    #[cfg(feature = "server-warp")]
     /// A helper function that coalesces a `Buf` `Stream` into the bytes being
     /// streamed.
     ///
-    /// Requires `features = "warp"`.
+    /// Requires `features = "server-warp"`.
     async fn buf_to_bytes(
         strm: impl Stream<Item = Result<impl Buf, warp::Error>>,
     ) -> Result<Bytes, warp::Error> {
@@ -339,10 +341,10 @@ impl Field {
         ))
     }
 
-    #[cfg(feature = "warp")]
+    #[cfg(feature = "server-warp")]
     /// Attempts to create a `Field` instance from the provided `Part`.
     ///
-    /// Requires `features = "warp"`.
+    /// Requires `features = "server-warp"`.
     pub async fn try_from_async(part: Part) -> Result<(String, Self), Status<String>> {
         let name = part.name().to_string();
         let filename = part.filename().map(|f| f.to_string());
@@ -526,11 +528,11 @@ impl Form {
         buf
     }
 
-    #[cfg(feature = "warp")]
+    #[cfg(feature = "server-warp")]
     /// Attempts to consume a Warp `FormData` stream and return a `Form` built
     /// from its contents.
     ///
-    /// Requires `features = "warp"`.
+    /// Requires `features = "server-warp"`.
     async fn try_from_formdata(mut data: FormData) -> Result<Self, Status<String>> {
         let mut form = Form::new();
 
@@ -564,36 +566,36 @@ impl From<HashMap<String, String>> for Form {
 }
 
 #[derive(Debug)]
-#[cfg(feature = "warp")]
+#[cfg(feature = "server-warp")]
 ///
-/// Requires `features = "warp"`.
+/// Requires `features = "server-warp"`.
 struct RejectionWrapper {
     msg: String,
 }
 
-#[cfg(feature = "warp")]
+#[cfg(feature = "server-warp")]
 impl Display for RejectionWrapper {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "{}", self.msg)
     }
 }
 
-#[cfg(feature = "warp")]
+#[cfg(feature = "server-warp")]
 impl Error for RejectionWrapper {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         None
     }
 }
 
-#[cfg(feature = "warp")]
+#[cfg(feature = "server-warp")]
 impl Reject for RejectionWrapper {}
 
-#[cfg(feature = "warp")]
+#[cfg(feature = "server-warp")]
 /// Returns a `Filter` that reads a form as either a URL-encoded request body
 /// or a `multipart/form-data` body, parses it as necessary, and returns a
 /// `Form` object.
 ///
-/// Requires `features = "warp"`.
+/// Requires `features = "server-warp"`.
 pub fn form_filter() -> impl Filter<Extract = (Form,), Error = Rejection> {
     warp::filters::body::form()
         .map(|f: HashMap<String, String>| Form::from(f))
