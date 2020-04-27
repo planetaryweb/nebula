@@ -377,6 +377,23 @@ impl Field {
 
         Ok((name, field))
     }
+
+    /// Returns an Option containing the text of the field, if it is not a
+    /// File.
+    pub fn as_text(&self) -> Option<&str> {
+        match self {
+            Field::Text(txt) => Some(&str),
+            Field::File(_) => None,
+        }
+    }
+
+    /// Returns an Option containing the file from the field, if it is a File.
+    pub fn as_file(&self) -> Option<&File> {
+        match self {
+            Field::Text(_) => None,
+            Field::File(f) => Some(&f),
+        }
+    }
 }
 
 /// Represents the entire contents of a submitted form.
