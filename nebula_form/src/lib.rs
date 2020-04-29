@@ -90,6 +90,44 @@ mod tests {
     }
 
     #[test]
+    fn field_with_text_into_text() {
+        let content = "some random text stuff";
+        let field = Field::Text(String::from(content));
+        assert_eq!(field.into_text(), Some(String::from(content)));
+    }
+
+    #[test]
+    fn field_with_text_into_file_is_none() {
+        let content = "some random text stuff";
+        let field = Field::Text(String::from(content));
+        assert_eq!(field.into_file(), None);
+    }
+
+    #[test]
+    fn field_with_file_into_file() {
+        let file = FormFile {
+            filename: String::from("file.txt"),
+            content_type: String::from("text/plain"),
+            bytes: b"this is the content of the file."[..].into(),
+        };
+
+        let field = Field::File(file.clone());
+        assert_eq!(field.into_file(), Some(file));
+    }
+
+    #[test]
+    fn field_with_file_into_text_is_none() {
+        let file = FormFile {
+            filename: String::from("file.txt"),
+            content_type: String::from("text/plain"),
+            bytes: b"this is the content of the file."[..].into(),
+        };
+
+        let field = Field::File(file);
+        assert_eq!(field.into_text(), None);
+    }
+
+    #[test]
     fn field_with_text_as_text() {
         let content = "some random text stuff";
         let field = Field::Text(String::from(content));
@@ -414,6 +452,24 @@ impl Field {
         });
 
         Ok((name, field))
+    }
+
+    /// Returns an Option containing the text of the field as an owned value,
+    /// if it is not a File.
+    pub fn into_text(self) -> Option<String> {
+        match self {
+            Field::Text(txt) => Some(txt),
+            Field::File(_) => None,
+        }
+    }
+
+    /// Returns an Option containing the file from the field as an owned value,
+    /// if it is a File.
+    pub fn into_file(self) -> Option<FormFile> {
+        match self {
+            Field::Text(_) => None,
+            Field::File(f) => Some(f),
+        }
     }
 
     /// Returns an Option containing the text of the field, if it is not a
