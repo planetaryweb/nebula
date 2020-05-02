@@ -14,14 +14,16 @@ use hyper::Body;
 use std::fmt::Debug;
 #[cfg(feature = "server-warp")]
 use warp::{
-    reject::{Reject, Rejection},
+    reject::{self, Reject, Rejection},
     reply::{Reply, Response},
 };
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "server-warp")]
     use warp::reject;
+
     // To test:
     #[test]
     fn new_status_contains_correct_code() {
@@ -70,6 +72,18 @@ mod tests {
     #[cfg(feature = "server-warp")]
     fn non_status_rejection_is_not_status() {
         assert!(!Status::<Empty>::rejection_is_status(&reject::not_found()));
+    }
+
+    #[test]
+    #[cfg(feature = "server-warp")]
+    fn rejection_from_status() {
+        let data = vec![0u8, 1u8, 2u8, 3u8, 4u8];
+        let status = Status::with_data(&StatusCode::IM_A_TEAPOT, data.clone());
+        
+        let rej = reject::Rejection::from(status.clone());
+        let rej_status = rej.find::<Status<Vec<u8>>>().unwrap();
+
+        assert_eq!(status, rej_status);
     }
 
     // - 5xx status does not reveal error message to client
@@ -193,6 +207,12 @@ impl<T: StatusData> Status<T> {
         }
     }
 
+    /// Returns an option containing a reference to the contained data, if
+    /// any.
+    pub fn data(&self) -> Option<&T> {
+        self.data.as_ref()
+    }
+
     /// Gain an immutable view into the headers map.
     pub fn headers(&self) -> &HeaderMap<HeaderValue> {
         &self.h
@@ -217,6 +237,13 @@ impl<T: StatusData> Status<T> {
         err.find::<Self>()
             .map(|stat| stat.clone())
             .ok_or(Error::NotStatus(err))
+    }
+}
+
+#[cfg(feature = "server-warp")]
+impl <T: StatusData> From<Status<T>> for Rejection {
+    fn from(status: Status<T>) -> Self {
+        reject::custom(status)
     }
 }
 
