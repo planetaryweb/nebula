@@ -230,10 +230,10 @@ impl<T: StatusData> Status<T> {
     }
 
     #[cfg(feature = "server-warp")]
-    /// Attempts to recover the Rejection as an instnace of Status. Returns
+    /// Attempts to recover the Rejection as an instance of Status. Returns
     /// Error::NotStatus if the Rejection does not implement Status.
     // TODO: Example usage
-    pub fn recover(err: Rejection) -> std::result::Result<impl Reply, Error> {
+    pub fn recover(err: Rejection) -> std::result::Result<Self, Error> {
         err.find::<Self>()
             .map(|stat| stat.clone())
             .ok_or(Error::NotStatus(err))
