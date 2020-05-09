@@ -91,6 +91,7 @@ mod tests {
 }
 
 /// An enumerated list of possible errors returned by this crate and related data.
+#[derive(Debug)]
 pub enum Error {
     #[cfg(feature = "server-warp")]
     /// The Rejection you attempted to recover is not an instance of Status.
