@@ -98,10 +98,15 @@ pub enum Error {
     NotStatus(Rejection),
 }
 
-/// A trait alias for marking associated date with the traits necessary to be
+/// A trait alias for marking associated data inside of a container with the 
+/// traits necessary to be used.
+pub trait StatusInnerData: Clone + Debug + Send + Sync + 'static {}
+impl<T: Clone + Debug + Send + Sync + 'static> StatusInnerData for T {}
+
+/// A trait alias for marking associated data with the traits necessary to be
 /// used.
-pub trait StatusData: Into<Bytes> + Clone + Debug + Send + Sync + 'static {}
-impl<T: Into<Bytes> + Clone + Debug + Send + Sync + 'static> StatusData for T {}
+pub trait StatusData: Into<Bytes> + StatusInnerData {}
+impl<T: Into<Bytes> + StatusInnerData> StatusData for T {}
 
 /// An empty type used by a Status without associated data.
 #[derive(Clone, Debug)]
