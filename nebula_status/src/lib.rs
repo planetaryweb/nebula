@@ -239,7 +239,7 @@ impl<T: StatusData> Status<T> {
     /// Attempts to recover the Rejection as an instance of Status. Returns
     /// Error::NotStatus if the Rejection does not implement Status.
     // TODO: Example usage
-    pub fn recover(err: &Rejection) -> std::result::Result<Self, Error> {
+    pub fn recover(err: Rejection) -> std::result::Result<Self, Error> {
         err.find::<Self>()
             .map(|stat| stat.clone())
             .ok_or(Error::NotStatus(err))
