@@ -20,6 +20,7 @@ use warp::filters::multipart::{FormData, Part};
 use warp::reject::{Reject, Rejection};
 #[cfg(feature = "server-warp")]
 use warp::Filter;
+use std::str::FromStr;
 
 #[cfg(test)]
 mod tests {
@@ -368,10 +369,41 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "server-warp")]
-    fn wrap_form_multipart_failure() {
-        // Not sure how to test this...
+    fn test_field_as_fromstr() {
+        let field = Field::Text("12".to_string());
+        let num = field.contents_as()
+            .expect("Number conversion should not fail");
+
+        assert_eq!(12u16, num);
     }
+
+    #[test]
+    fn test_file_field_is_not_text_with_fromstr() {
+        let field = Field::File(
+            FormFile {
+                filename: "test.txt".to_string(),
+                content_type: "text/plain".to_string(),
+                bytes: b"12".as_ref().into(),
+            }
+        );
+
+        let err = field.contents_as::<u16, _>()
+            .expect_err("Converting text *file* to number should fail");
+        
+        if let Error::NotText = err {
+            assert!(true);
+        } else {
+            panic!("Unexpected error: {:?}", err);
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum Error {
+    ParseField(String),
+    ParseForm(String),
+    NotText,
+    NotFile,
 }
 
 /// Represents a single file submitted through a form
@@ -488,6 +520,15 @@ impl Field {
             Field::File(f) => Some(&f),
         }
     }
+
+    /// Attmpts to return the field contents as an instance of type T if the field is
+    /// Field::Text, or Ok(None) for Field::File.
+    pub fn contents_as<T, E>(&self) -> Result<T, Error> where E: std::fmt::Display + Sized, T: FromStr<Err=E> {
+        let txt = self.as_text()
+            .ok_or(Error::NotText)?;
+        txt.parse()
+            .map_err(|e: E| Error::ParseField(e.to_string()))
+    }
 }
 
 /// Represents the entire contents of a submitted form.
@@ -526,7 +567,7 @@ impl Form {
     pub fn get(&self, name: &str) -> Option<&Field> {
         self.0.get(name)
     }
-
+    
     /// Append the contents of a map to the current `Form`. Fields that already
     /// exist will be overwritten.
     pub fn extend(&mut self, iter: impl Iterator<Item = (String, Field)>) {
