@@ -1,6 +1,6 @@
 [package]
 name = "nebula_form"
-version = "0.1.5"
+version = "0.1.6"
 authors = ["Michael Bryant <shadow53@shadow53.com>"]
 edition = "2018"
 description = "General form"
