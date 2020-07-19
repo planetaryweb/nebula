@@ -28,7 +28,7 @@ mod tests {
     #[test]
     fn new_status_contains_correct_code() {
         assert_eq!(
-            Status::new(&StatusCode::IM_A_TEAPOT).code(),
+            Status::new(StatusCode::IM_A_TEAPOT).code(),
             &StatusCode::IM_A_TEAPOT
         );
     }
@@ -36,26 +36,26 @@ mod tests {
     #[test]
     fn new_status_contains_correct_specified_message() {
         assert_eq!(
-            Status::with_message(&StatusCode::IM_A_TEAPOT, String::from("foobar")).message(),
+            Status::with_message(StatusCode::IM_A_TEAPOT, String::from("foobar")).message(),
             Some("foobar")
         );
     }
 
     #[test]
     fn new_status_does_not_contain_message() {
-        assert_eq!(Status::new(&StatusCode::IM_A_TEAPOT).message(), None);
+        assert_eq!(Status::new(StatusCode::IM_A_TEAPOT).message(), None);
     }
 
     #[test]
     fn new_status_has_empty_headers() {
-        assert!(Status::new(&StatusCode::IM_A_TEAPOT).headers().is_empty());
+        assert!(Status::new(StatusCode::IM_A_TEAPOT).headers().is_empty());
     }
 
     #[test]
     fn server_error_does_not_contain_error_message() {
         let server_msg = "foobar";
         let status =
-            Status::with_message(&StatusCode::INTERNAL_SERVER_ERROR, String::from(server_msg));
+            Status::with_message(StatusCode::INTERNAL_SERVER_ERROR, String::from(server_msg));
         let client_msg = status.to_string();
         assert!(!client_msg.contains(server_msg));
     }
@@ -128,27 +128,27 @@ pub struct Status<T = Empty>
 where
     T: StatusData,
 {
-    c: &'static StatusCode,
-    data: Option<T>,
-    data_bytes: Option<Bytes>,
+    c: StatusCode,
+    data: T,
+    data_bytes: Bytes,
     h: HeaderMap<HeaderValue>,
 }
 
 impl Status {
     /// Create a new Status without any associated data. This will be converted to
     /// the specified status code with associated headers and no body.
-    pub fn new(code: &'static StatusCode) -> Status<Empty> {
+    pub fn new(code: StatusCode) -> Status<Empty> {
         Status {
             c: code,
-            data: None,
-            data_bytes: None,
+            data: Empty{},
+            data_bytes: Bytes::new(),
             h: HeaderMap::new(),
         }
     }
 
     /// Create a new Status with associated data of type String. Useful for
     /// returning basic error messages.
-    pub fn with_message(code: &'static StatusCode, msg: String) -> Status<String> {
+    pub fn with_message(code: StatusCode, msg: String) -> Status<String> {
         let mut status = Status::with_data(code, msg);
         status.headers_mut().insert(
             header::CONTENT_TYPE,
@@ -159,11 +159,11 @@ impl Status {
 
     /// Create a new Status with associated arbitrary data. Useful for
     /// returning a struct that can be serialized into e.g. JSON.
-    pub fn with_data<T: StatusData>(code: &'static StatusCode, data: T) -> Status<T> {
+    pub fn with_data<T: StatusData>(code: StatusCode, data: T) -> Status<T> {
         Status {
             c: code,
-            data: Some(data.clone()),
-            data_bytes: Some(data.into()),
+            data: data.clone(),
+            data_bytes: data.into(),
             h: HeaderMap::new(),
         }
     }
@@ -180,10 +180,7 @@ impl<T: StatusData> Status<T> {
         // If there is data and it can successfully be parsed as a string,
         // return the parsed string. Otherwise, return None, ignoring any
         // errors while parsing.
-        match self.data_bytes.as_ref() {
-            None => None,
-            Some(data) => std::str::from_utf8(data.as_ref()).ok(),
-        }
+        std::str::from_utf8(self.data_bytes.as_ref()).ok()
     }
 
     /// Attempts to parse the data contained in this Status as a &str.
@@ -213,10 +210,13 @@ impl<T: StatusData> Status<T> {
         }
     }
 
-    /// Returns an option containing a reference to the contained data, if
-    /// any.
-    pub fn data(&self) -> Option<&T> {
-        self.data.as_ref()
+    /// Returns a reference to the contained data.
+    pub fn data(&self) -> &T {
+        &self.data
+    }
+
+    pub fn bytes(&self) -> &[u8] {
+        &self.data_bytes
     }
 
     /// Gain an immutable view into the headers map.
