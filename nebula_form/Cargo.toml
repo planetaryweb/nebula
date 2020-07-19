@@ -21,6 +21,6 @@ server-warp = [ "warp", "nebula_status/server-warp" ]
 [dependencies]
 bytes = "0.5"
 futures = "0.3"
-nebula_status = { version = "0.1", path = "../nebula_status", optional = true }
+nebula_status = { version = "0.3", path = "../nebula_status", optional = true }
 urlencoding = "1.0.0"
 warp = { version = "0.2", optional = true }

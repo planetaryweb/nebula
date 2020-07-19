@@ -459,21 +459,21 @@ impl Field {
 
         let content = Self::buf_to_bytes(part.stream())
             .await
-            .map_err(|e| Status::with_message(&StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            .map_err(|e| Status::with_message(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
         let filename = match filename {
             None => {
                 return String::from_utf8(content.to_vec())
                     .map(|s| (name, Field::Text(s)))
                     .map_err(|e| {
-                        Status::with_message(&StatusCode::UNSUPPORTED_MEDIA_TYPE, e.to_string())
+                        Status::with_message(StatusCode::UNSUPPORTED_MEDIA_TYPE, e.to_string())
                     })
             }
             Some(f) => f,
         };
 
         let content_type = content_type.ok_or(Status::with_message(
-            &StatusCode::BAD_REQUEST,
+            StatusCode::BAD_REQUEST,
             "form field has filename but no content type".to_string(),
         ))?;
 
@@ -534,6 +534,16 @@ impl Field {
 /// Represents the entire contents of a submitted form.
 #[derive(Debug, Default, PartialEq)]
 pub struct Form(HashMap<String, Field>);
+
+impl IntoIterator for Form {
+    type Item = (String, Field);
+    type IntoIter = <HashMap<String, Field> as IntoIterator>::IntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        let Form(fields) = self;
+        fields.into_iter()
+    }
+}
 
 impl Form {
     /// Creates a new empty form instance.
@@ -691,7 +701,7 @@ impl Form {
             match part {
                 Err(err) => {
                     return Err(Status::with_message(
-                        &StatusCode::INTERNAL_SERVER_ERROR,
+                        StatusCode::INTERNAL_SERVER_ERROR,
                         err.to_string(),
                     ))
                 }
