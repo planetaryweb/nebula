@@ -1,6 +1,6 @@
 [package]
 name = "nebula_status"
-version = "0.3.0"
+version = "0.3.3"
 authors = ["Michael Bryant <shadow53@shadow53.com>"]
 edition = "2018"
 
