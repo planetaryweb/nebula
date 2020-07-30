@@ -1,5 +1,7 @@
 use bytes::Bytes;
 use http::header::{self, HeaderMap, HeaderValue};
+#[cfg(feature = "serde-json")]
+use serde::Serialize;
 #[cfg(feature = "server-warp")]
 use http::response::Builder;
 pub use http::StatusCode;
@@ -12,6 +14,7 @@ use hyper::Body;
 /// Currently, the only automatic conversion that is supported is for Warp.
 ///
 use std::fmt::Debug;
+use std::convert::Into;
 #[cfg(feature = "server-warp")]
 use warp::{
     reject::{self, Reject, Rejection},
@@ -98,6 +101,26 @@ pub enum Error {
     NotStatus(Rejection),
 }
 
+/// Custom trait to convert a type into Bytes. Required to be defined here so it
+/// can be implemented on foreign types.
+pub trait IntoBytes {
+    fn into_bytes(self) -> Bytes;
+}
+
+impl<T: Into<Bytes>> IntoBytes for T {
+    fn into_bytes(self) -> Bytes {
+        self.into()
+    }
+}
+
+// Blanket implementation to convert Serializable types into JSON bytes
+#[cfg(feature = "serde-json")]
+impl<T> IntoBytes for T where T: Serialize {
+    fn into_bytes(self) -> Bytes {
+        serde_json::to_string(&self).into()
+    }
+}
+
 /// A trait alias for marking associated data inside of a container with the 
 /// traits necessary to be used.
 pub trait StatusInnerData: Clone + Debug + Send + Sync + 'static {}
@@ -105,8 +128,8 @@ impl<T: Clone + Debug + Send + Sync + 'static> StatusInnerData for T {}
 
 /// A trait alias for marking associated data with the traits necessary to be
 /// used.
-pub trait StatusData: Into<Bytes> + StatusInnerData {}
-impl<T: Into<Bytes> + StatusInnerData> StatusData for T {}
+pub trait StatusData: IntoBytes + StatusInnerData {}
+impl<T: IntoBytes + StatusInnerData> StatusData for T {}
 
 /// An empty type used by a Status without associated data.
 #[derive(Clone, Debug)]
@@ -163,7 +186,7 @@ impl Status {
         Status {
             c: code,
             data: data.clone(),
-            data_bytes: data.into(),
+            data_bytes: data.into_bytes(),
             h: HeaderMap::new(),
         }
     }
