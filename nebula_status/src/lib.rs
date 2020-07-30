@@ -64,7 +64,7 @@ mod tests {
     #[cfg(feature = "server-warp")]
     fn status_rejection_is_a_status() {
         assert!(Status::<Empty>::rejection_is_status(&reject::custom(Status::new(
-            &StatusCode::IM_A_TEAPOT
+            StatusCode::IM_A_TEAPOT
         ))));
     }
 
@@ -78,12 +78,12 @@ mod tests {
     #[cfg(feature = "server-warp")]
     fn rejection_from_status() {
         let data = vec![0u8, 1u8, 2u8, 3u8, 4u8];
-        let status = Status::with_data(&StatusCode::IM_A_TEAPOT, data.clone());
+        let status = Status::with_data(StatusCode::IM_A_TEAPOT, data.clone());
         
         let rej = reject::Rejection::from(status.clone());
         let rej_status = rej.find::<Status<Vec<u8>>>().unwrap();
 
-        assert_eq!(status, rej_status);
+        assert_eq!(&status, rej_status);
     }
 
     // - 5xx status does not reveal error message to client
@@ -109,7 +109,7 @@ pub trait StatusData: Into<Bytes> + StatusInnerData {}
 impl<T: Into<Bytes> + StatusInnerData> StatusData for T {}
 
 /// An empty type used by a Status without associated data.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Empty;
 
 impl Into<Bytes> for Empty {
@@ -123,7 +123,7 @@ impl Into<Bytes> for Empty {
 /// Code that creates a new instance of Status should set any related response
 /// headers before returning it.
 // TODO: Genericize the data member into anything that can be converted into bytes?
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Status<T = Empty>
 where
     T: StatusData,
@@ -294,11 +294,7 @@ impl<T: StatusData> From<Status<T>> for Response {
         // and HeaderName/HeaderValue types are taken directly from the same crate
         // that implements this Builder. Further, creating the hyper Body should
         // not error either.
-        match s.data_bytes {
-            None => build.body(Body::empty()),
-            Some(m) => build.body(Body::from(m)),
-        }
-        .unwrap()
+        build.body(Body::from(s.data_bytes)).unwrap()
     }
 }
 
