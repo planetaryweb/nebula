@@ -1,0 +1,50 @@
+syntax = "proto3";
+package nebula;
+
+service Handler {
+    rpc HandleRpc (HandleRequest) returns (Status);
+    rpc ValidateRpc (Config) returns (Status);
+}
+
+message File {
+    string name = 1;
+    string content_type = 2;
+    bytes content = 3;
+}
+
+message Field {
+    oneof value {
+        string text = 2;
+        File file = 3;
+    }
+}
+
+message Form {
+    map<string, Field> fields = 1;
+}
+
+message ConfigValue {
+    oneof value {
+        string leaf = 1;
+        Config node = 2;
+    }
+}
+
+message Config {
+    map<string, ConfigValue> config = 1;
+}
+
+message Headers {
+    repeated string headers = 1;
+}
+
+message Status {
+    uint32 code = 1;
+    map<string, Headers> headers = 2;
+    bytes body = 3;
+}
+
+message HandleRequest {
+    Config config = 1;
+    Form form = 2;
+}
