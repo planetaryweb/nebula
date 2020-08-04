@@ -1,10 +1,11 @@
-use async_trait::async_trait;
+use bytes::Bytes;
 use crate::config::Config;
 use crate::convert::{FromRPC, IntoRPC};
 use crate::rpc;
 use crate::{Response, Result as RPCResult};
 use nebula_form::Form;
 use nebula_status::Status;
+use tonic::async_trait;
 use tonic::transport::Server;
 
 #[cfg(test)]
@@ -29,8 +30,8 @@ pub async fn start<T>(addr: std::net::SocketAddr) -> Result<(), tonic::transport
 
 #[async_trait]
 pub trait Handler: Send + Sync + 'static {
-    async fn handle(&self, config: Config, form: Form) -> Status;
-    async fn validate(&self, config: Config) -> Status;
+    async fn handle(&self, config: Config, form: Form) -> Status<Bytes>;
+    async fn validate(&self, config: Config) -> Status<Bytes>;
 }
 
 #[async_trait]

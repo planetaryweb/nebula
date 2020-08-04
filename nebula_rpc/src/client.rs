@@ -20,6 +20,7 @@ mod tests {
 	}
 }
 
+#[derive(Debug)]
 pub enum Error {
     ClientExists(String),
     ClientNoExists(String),

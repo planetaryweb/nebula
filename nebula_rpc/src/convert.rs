@@ -11,12 +11,225 @@ use nebula_status::{Status, StatusCode, StatusData};
 #[cfg(test)]
 mod tests {
 	use super::*;
+    use crate::rpc;
+
+    // These functions should be kept in sync to ensure that the normal version
+    // and the RPC type represent the same information. As long as these stay
+    // in sync, all tests and functions will be correct.
+
+    fn get_form_file() -> FormFile {
+        FormFile {
+            filename: "some form file.txt".to_string(),
+            content_type: "text/plain".to_string(),
+            bytes: b"text content\nstuff".to_vec().into(),
+        }
+    }
+
+    fn get_rpc_form_file() -> rpc::File {
+        rpc::File {
+            name: "some form file.txt".to_string(),
+            content_type: "text/plain".to_string(),
+            content: b"text content\nstuff".to_vec(),
+        }
+    }
+
+    fn get_file_field() -> Field {
+        Field::File(get_form_file())
+    }
+
+    fn get_rpc_file_field() -> rpc::Field {
+        rpc::Field {
+            value: Some(rpc::field::Value::File(get_rpc_form_file()))
+        }
+    }
+
+    fn get_text_field() -> Field {
+        Field::Text("username@example.com".to_string())
+    }
+
+    fn get_rpc_text_field() -> rpc::Field {
+        rpc::Field {
+            value: Some(rpc::field::Value::Text("username@example.com".to_string()))
+        }
+    }
+
+    fn get_form() -> Form {
+        let mut form = Form::new();
+        form.insert("some_file", get_file_field());
+        form.insert("email", get_text_field());
+        form
+    }
+
+    fn get_rpc_form() -> rpc::Form {
+        let mut fields = HashMap::new();
+        fields.insert("some_file".to_string(), get_rpc_file_field());
+        fields.insert("email".to_string(), get_rpc_text_field());
+        rpc::Form { fields }
+    }
+
+    fn get_config() -> Config {
+        let mut inner = Config::new();
+        inner.insert("baz".to_string(), ConfigValue::Leaf("quux".to_string()));
+        let mut config = Config::new();
+        config.insert("top-level".to_string(), ConfigValue::Leaf("foobar".to_string()));
+        config.insert("bar".to_string(), ConfigValue::Node(inner));
+        config
+    }
+
+    fn get_rpc_config() -> rpc::Config {
+        let mut inner = HashMap::new();
+        inner.insert("baz".to_string(), rpc::ConfigValue {
+            value: Some(rpc::config_value::Value::Leaf("quux".to_string())),
+        });
+        let inner = rpc::Config {
+            config: inner,
+        };
+        let mut config = HashMap::new();
+        config.insert("top-level".to_string(), rpc::ConfigValue {
+            value: Some(rpc::config_value::Value::Leaf("foobar".to_string())),
+        });
+        config.insert("bar".to_string(), rpc::ConfigValue {
+            value: Some(rpc::config_value::Value::Node(inner))
+        });
+        rpc::Config {
+            config,
+        }
+    }
+
+    fn get_status() -> Status<Bytes> {
+        let mut status = Status::with_data(
+            StatusCode::IM_A_TEAPOT,
+            b"{ success: true }".to_vec().into(),
+        );
+        status.headers_mut().insert("X-App-Test", "lorem ipsum".parse().expect("should be a valid header value"));
+        status
+    }
+
+    fn get_rpc_status() -> rpc::Status {
+        let mut headers = HashMap::new();
+        // http::HeaderMap lowercases header names on insert, match that here
+        headers.insert("x-app-test".to_string(), rpc::Headers {
+            headers: vec!["lorem ipsum".to_string()]
+        });
+        rpc::Status {
+            code: 418u32,
+            headers,
+            body: b"{ success: true }".to_vec(),
+        }
+    }
 
 	#[test]
-	fn it_works() {
-	}
+    fn form_file_from_rpc() {
+        let rpc_file = get_rpc_form_file();
+        let file = FormFile::from_rpc(rpc_file)
+            .expect("Conversion should not fail");
+        let expected = get_form_file();
+
+        assert_eq!(file, expected);
+    }
+
+	#[test]
+    fn form_file_into_rpc() {
+        let file = get_form_file();
+        let rpc_file = file.into_rpc()
+            .expect("Conversion should not fail");
+        let expected = get_rpc_form_file();
+
+        assert_eq!(rpc_file, expected);
+    }
+
+    #[test]
+    fn file_field_from_rpc() {
+        let rpc_field = get_rpc_file_field();
+        let field = Field::from_rpc(rpc_field)
+            .expect("conversion should not fail");
+        let expected = get_file_field();
+        assert_eq!(field, expected);
+    }
+
+    #[test]
+    fn file_field_into_rpc() {
+        let field = get_file_field();
+        let rpc_field = field.into_rpc()
+            .expect("conversion should not fail");
+        let expected = get_rpc_file_field();
+        assert_eq!(rpc_field, expected);
+    }
+
+    #[test]
+    fn text_field_from_rpc() {
+        let rpc_field = get_rpc_text_field();
+        let field = Field::from_rpc(rpc_field)
+            .expect("conversion should not fail");
+        let expected = get_text_field();
+        assert_eq!(field, expected);
+    }
+
+    #[test]
+    fn text_field_into_rpc() {
+        let field = get_text_field();
+        let rpc_field = field.into_rpc()
+            .expect("conversion should not fail");
+        let expected = get_rpc_text_field();
+        assert_eq!(rpc_field, expected);
+    }
+
+    #[test]
+    fn form_from_rpc() {
+        let rpc_form = get_rpc_form();
+        let form = Form::from_rpc(rpc_form)
+            .expect("conversion should not fail");
+        let expected = get_form();
+        assert_eq!(form, expected);
+    }
+
+    #[test]
+    fn form_into_rpc() {
+        let form = get_form();
+        let rpc_form = form.into_rpc()
+            .expect("conversion should not fail");
+        let expected = get_rpc_form();
+        assert_eq!(rpc_form, expected);
+    }
+
+    #[test]
+    fn config_from_rpc() {
+        let rpc_config = get_rpc_config();
+        let config = Config::from_rpc(rpc_config)
+            .expect("conversion should not fail");
+        let expected = get_config();
+        assert_eq!(config, expected);
+    }
+
+    #[test]
+    fn config_into_rpc() {
+        let config = get_config();
+        let rpc_config = config.into_rpc()
+            .expect("conversion should not fail");
+        let expected = get_rpc_config();
+        assert_eq!(rpc_config, expected);
+    }
+
+    #[test]
+    fn status_from_rpc() {
+        let rpc_status = get_rpc_status();
+        let status = Status::<Bytes>::from_rpc(rpc_status)
+            .expect("conversion should not fail");
+        let expected = get_status();
+        assert_eq!(status, expected);
+    }
+
+    #[test]
+    fn status_into_rpc() {
+        let status = get_status();
+        let rpc_status = status.into_rpc()
+            .expect("conversion should not fail");
+        let expected = get_rpc_status();
+        assert_eq!(rpc_status, expected);
+    }
 }
 
+#[derive(Debug)]
 pub enum Error {
     HeaderNameToStr(ToStrError),
     HeaderNameFromStr(InvalidHeaderName),
