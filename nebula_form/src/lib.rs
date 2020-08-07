@@ -9,7 +9,7 @@ use bytes::Buf;
 use nebula_status::{Status, StatusCode};
 use std::collections::HashMap;
 #[cfg(feature = "server-warp")]
-use std::error::Error;
+use std::error::Error as StdError;
 #[cfg(feature = "server-warp")]
 use std::fmt::{self, Display, Formatter};
 use std::str;
@@ -370,7 +370,7 @@ mod tests {
     #[test]
     fn test_field_as_fromstr() {
         let field = Field::Text("12".to_string());
-        let num = field.contents_as()
+        let num: u16 = field.contents_as()
             .expect("Number conversion should not fail");
 
         assert_eq!(12u16, num);
@@ -741,8 +741,8 @@ impl Display for RejectionWrapper {
 }
 
 #[cfg(feature = "server-warp")]
-impl Error for RejectionWrapper {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
+impl StdError for RejectionWrapper {
+    fn source(&self) -> Option<&(dyn StdError + 'static)> {
         None
     }
 }
