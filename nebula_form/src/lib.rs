@@ -13,7 +13,6 @@ use std::error::Error;
 #[cfg(feature = "server-warp")]
 use std::fmt::{self, Display, Formatter};
 use std::str;
-use urlencoding;
 #[cfg(feature = "server-warp")]
 use warp::filters::multipart::{FormData, Part};
 #[cfg(feature = "server-warp")]

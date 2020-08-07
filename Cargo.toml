@@ -1,6 +1,8 @@
 [workspace]
 members = [
-	"nebula",
-	"nebula_email",
+    "hcaptcha",
 	"nebula_form",
+    "nebula_rpc",
+	"nebula_status",
+    "handlers/nebula_handler_validate",
 ]
