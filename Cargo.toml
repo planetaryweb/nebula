@@ -1,6 +1,6 @@
 [workspace]
 members = [
-	"nebula",
-	"nebula_email",
 	"nebula_form",
+    "nebula_rpc",
+	"nebula_status",
 ]
