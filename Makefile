@@ -46,13 +46,20 @@ rustup-stable: rustup
 	fi
 
 .PHONY: test
-test: test-rpc
+test:
+	${CARGO_COMMAND} test ${CARGO_TEST_FLAGS}
 
 .PHONY: test-net
-test-net: test-rpc-net
+test-net:
+	${CARGO_COMMAND} test --features test-ports
 
 .PHONY: test-all
-test-all: test test-net
+test-all:
+	${CARGO_COMMAND} test --all-features
+
+.PHONY: test-forms
+test-forms: ${RUSTUP_TARGET}
+	${CARGO_COMMAND} test --manifest-path nebula_forms/Cargo.toml ${CARGO_TEST_FLAGS}
 
 .PHONY: test-rpc
 test-rpc: ${RUSTUP_TARGET}
@@ -64,7 +71,11 @@ test-rpc-net: ${RUSTUP_TARGET}
 	${CARGO_COMMAND} test --manifest-path nebula_rpc/Cargo.toml --features test-ports ${CARGO_TEST_FLAGS}
 
 .PHONY: test-rpc-all
-test-rpc-all: test-rpc test-rpc-net
+test-rpc-all: test-rpc-net
+
+.PHONY: test-status
+test-status: ${RUSTUP_TARGET}
+	${CARGO_COMMAND} test --manifest-path nebula_status/Cargo.toml --all-features ${CARGO_TEST_FLAGS}
 
 clean: ${RUSTUP_TARGET}
 	${CARGO_COMMAND} clean

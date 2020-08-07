@@ -1,0 +1,15 @@
+[package]
+name = "hcaptcha"
+version = "0.1.0"
+authors = ["Michael Bryant <shadow53@shadow53.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+chrono = { version = "0.4", features = ["serde"] }
+reqwest = { version = "0.10", features = ["json"] }
+serde = { version = "1.0", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = "1.0"
