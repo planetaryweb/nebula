@@ -1,6 +1,3 @@
-use nebula_rpc::server::Handler;
-use std::collections::HashMap;
-
 #[cfg(test)]
 mod tests {
     #[test]
