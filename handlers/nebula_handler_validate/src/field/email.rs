@@ -1,4 +1,5 @@
-use super::{Validator, ValidationError};
+use super::{ConfigError, Validator, ValidationError};
+use nebula_rpc::{Config, ConfigValue, config::ConfigExt};
 use serde::{Serialize, Deserialize};
 use std::cmp::PartialEq;
 use std::collections::HashSet;
@@ -240,12 +241,33 @@ impl fmt::Display for EmailError {
 
 impl Error for EmailError {}
 
-#[derive(Serialize, Deserialize)]
 pub(crate) struct EmailValidator {
     pub domain_whitelist: Option<HashSet<String>>,
     pub domain_blacklist: Option<HashSet<String>>,
-    #[serde(default, alias = "type")]
     pub regex_type: EmailType,
+}
+
+impl EmailValidator {
+    const FIELD_DOMAIN_BLACKLIST: &str = "domain-blacklist";
+    const FIELD_DOMAIN_WHITELIST: &str = "domain-whitelist";
+    const FIELD_REGEX_TYPE: &str = "type";
+}
+
+impl TryFrom<Config> for EmailValidator {
+    fn try_from(other: Config) -> Result<Self, ConfigError> {
+        let domain_blacklist = config.get_path_list(Self::FIELD_DOMAIN_BLACKLIST)?;
+        let domain_whitelist = config.get_path_list(Self::FIELD_DOMAIN_WHITELIST)?;
+        let regex_type = config.get_path_single(Self::FIELD_REGEX_TYPE)?
+            .ok_or(ConfigError::Required(Self::FIELD_REGEX_TYPE.to_string()))?;
+
+        let result = EmailValidator {
+            domain_whitelist,
+            domain_blacklist,
+            regex_type,
+        };
+
+        Ok(result)
+    }
 }
 
 impl Validator for EmailValidator {

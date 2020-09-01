@@ -8,6 +8,7 @@ pub mod url;
 
 use nebula_form::{Field, FormFile as File};
 use ordered_float::NotNan;
+use serde::de::{self, MapAccess};
 use std::error::Error;
 use std::fmt;
 
@@ -17,7 +18,7 @@ use file::FileValidator;
 use number::NumberValidator;
 use phone::PhoneValidator;
 use string::StringValidator;
-use url::UrlValidator;
+use self::url::UrlValidator;
 
 #[cfg(test)]
 mod tests {
@@ -58,6 +59,18 @@ fn join_iter<T>(collection: &mut dyn Iterator<Item=&T>, sep: &str) -> String whe
     s
 }
 
+#[debug]
+pub enum ConfigError {
+    // The String in each of these is the map key whose value is invalid
+    ExpectedBool(String),
+    ExpectedFloat(String),
+    ExpectedInt(String),
+    ExpectedMap(String),
+    ExpectedString(String),
+    ExpectedVec(String),
+    Required(String),
+}
+
 #[derive(Debug)]
 pub enum ValidationError {
     NotImplementedText,
@@ -75,7 +88,7 @@ impl fmt::Display for ValidationError {
 
 impl Error for ValidationError {}
 
-pub trait Validator {
+pub trait Validator: nebula_rpc::FromRPC<RPCType = nebula_rpc::Config> {
     type Error: ::std::error::Error + std::convert::From<ValidationError>;
     /// Validate text from a textual form field.
     fn validate_text(&self, text: &str) -> Result<(), Self::Error> {
