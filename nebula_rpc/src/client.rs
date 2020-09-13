@@ -1,7 +1,7 @@
-use bytes::Bytes;
 use crate::config::Config;
 use crate::convert::{self, FromRPC, IntoRPC};
 use crate::rpc::handler_client::HandlerClient;
+use bytes::Bytes;
 use http::uri::InvalidUri;
 use nebula_form::Form;
 use nebula_status::Status;
@@ -9,15 +9,14 @@ use nix::sys::signal::{kill as send_signal, Signal};
 use nix::unistd::Pid;
 use std::io::Error as IOError;
 use std::process::{Child, Command};
-use tonic::transport::{Error as TransportError, Uri, channel::Channel};
+use tonic::transport::{channel::Channel, Error as TransportError, Uri};
 
 #[cfg(test)]
 mod tests {
-	use super::*;
+    use super::*;
 
-	#[test]
-	fn it_works() {
-	}
+    #[test]
+    fn it_works() {}
 }
 
 #[derive(Debug)]
@@ -42,8 +41,8 @@ pub struct ClientArgs {
 
 pub struct Client {
     program: Option<Child>,
-    client:  HandlerClient<Channel>,
-    args:    Vec<String>,
+    client: HandlerClient<Channel>,
+    args: Vec<String>,
 }
 
 impl Client {
@@ -56,17 +55,18 @@ impl Client {
                         cmd.args(args.iter().skip(1));
                     }
                     cmd.spawn().map_err(Error::Command)
-                }).transpose()
+                })
+                .transpose()
         }?;
-        
-        let uri = addr.parse::<Uri>()
-            .map_err(Error::InvalidUri)?;
 
-        let client = HandlerClient::connect(uri).await
-            .map_err(Error::Connect)?;
+        let uri = addr.parse::<Uri>().map_err(Error::InvalidUri)?;
+
+        let client = HandlerClient::connect(uri).await.map_err(Error::Connect)?;
 
         let new = Self {
-            args, program, client
+            args,
+            program,
+            client,
         };
 
         Ok(new)
@@ -81,31 +81,26 @@ impl Client {
             Some(prog) => Pid::from_raw(prog.id() as i32),
         };
 
-        send_signal(pid, Signal::SIGHUP)
-            .map_err(Error::Signal)
+        send_signal(pid, Signal::SIGHUP).map_err(Error::Signal)
     }
 
     pub async fn handle(&mut self, config: Config, form: Form) -> Result<Status<Bytes>, Error> {
-        let req = (config, form).into_rpc()
-            .map_err(Error::Convert)?;
+        let req = (config, form).into_rpc().map_err(Error::Convert)?;
 
-        self.client.handle_rpc(req).await
-            .map(|res| {
-                Status::<Bytes>::from_rpc(res.into_inner())
-                    .map_err(Error::Convert)
-            })
+        self.client
+            .handle_rpc(req)
+            .await
+            .map(|res| Status::<Bytes>::from_rpc(res.into_inner()).map_err(Error::Convert))
             .map_err(Error::RPC)?
     }
 
     pub async fn validate(&mut self, config: Config) -> Result<Status<Bytes>, Error> {
-        let req = config.into_rpc()
-            .map_err(Error::Convert)?;
+        let req = config.into_rpc().map_err(Error::Convert)?;
 
-        self.client.validate_rpc(req).await
-            .map(|res| {
-                Status::<Bytes>::from_rpc(res.into_inner())
-                    .map_err(Error::Convert)
-            })
+        self.client
+            .validate_rpc(req)
+            .await
+            .map(|res| Status::<Bytes>::from_rpc(res.into_inner()).map_err(Error::Convert))
             .map_err(Error::RPC)?
     }
 }

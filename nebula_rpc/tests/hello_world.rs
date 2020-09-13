@@ -1,8 +1,8 @@
 use bytes::Bytes;
 use http::header::{self, HeaderValue};
-use nebula_form::{Form, Field};
+use nebula_form::{Field, Form};
 use nebula_rpc::client::Client;
-use nebula_rpc::config::{ConfigExt, Config, Value as ConfigValue};
+use nebula_rpc::config::{Config, ConfigExt, Value as ConfigValue};
 use nebula_rpc::server::Handler;
 use nebula_status::{Status, StatusCode};
 use tonic::async_trait;
@@ -10,7 +10,7 @@ use tonic::async_trait;
 mod utils {
     use super::*;
     use nebula_rpc::server;
-    use std::net::{SocketAddr, IpAddr, Ipv4Addr};
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
     pub const NAME: &str = "TesterMan";
     pub const ADDR: &str = "http://127.0.0.1:1324";
@@ -23,33 +23,42 @@ mod utils {
         SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 1324)
     }
 
-    pub async fn get_timed_server() -> tokio::task::JoinHandle<Result<(), tonic::transport::Error>> {
+    pub async fn get_timed_server() -> tokio::task::JoinHandle<Result<(), tonic::transport::Error>>
+    {
         let addr = get_addr();
-        tokio::spawn(async move {
-            server::start::<HelloWorldServer>(addr).await
-        })
+        tokio::spawn(async move { server::start::<HelloWorldServer>(addr).await })
     }
 
     pub async fn get_client() -> Client {
-        Client::new(ADDR.to_string(), vec![]).await
+        Client::new(ADDR.to_string(), vec![])
+            .await
             .expect("failed to create client")
     }
 
     pub fn get_valid_config() -> Config {
         let mut config = Config::new();
-        config.insert(HelloWorldServer::CONFIG_FIELD_FAIL.to_string(), ConfigValue::Leaf("false".to_string()));
+        config.insert(
+            HelloWorldServer::CONFIG_FIELD_FAIL.to_string(),
+            ConfigValue::Leaf("false".to_string()),
+        );
         config
     }
 
     pub fn get_invalid_config() -> Config {
         let mut config = Config::new();
-        config.insert(HelloWorldServer::CONFIG_FIELD_FAIL.to_string(), ConfigValue::Leaf("true".to_string()));
+        config.insert(
+            HelloWorldServer::CONFIG_FIELD_FAIL.to_string(),
+            ConfigValue::Leaf("true".to_string()),
+        );
         config
     }
 
     pub fn get_valid_form() -> Form {
         let mut form = Form::new();
-        form.insert(HelloWorldServer::FORM_FIELD_NAME, Field::Text(NAME.to_string()));
+        form.insert(
+            HelloWorldServer::FORM_FIELD_NAME,
+            Field::Text(NAME.to_string()),
+        );
         form
     }
 }
@@ -67,23 +76,29 @@ impl Handler for HelloWorldServer {
     async fn handle(&self, config: Config, form: Form) -> Status<Bytes> {
         let name = match form.get(Self::FORM_FIELD_NAME) {
             Some(name) => name.as_text(),
-            None => return Status::with_data(
-                StatusCode::BAD_REQUEST,
-                format!("{{ \"field\": \"{}\" }}", Self::FORM_FIELD_NAME).into()
-            ),
+            None => {
+                return Status::with_data(
+                    StatusCode::BAD_REQUEST,
+                    format!("{{ \"field\": \"{}\" }}", Self::FORM_FIELD_NAME).into(),
+                )
+            }
         };
 
         let name = match name {
             Some(name) => name,
-            None => return Status::with_data(
-                StatusCode::BAD_REQUEST,
-                format!("{{ \"field\": \"{}\" }}", Self::FORM_FIELD_NAME).into()
-            ),
+            None => {
+                return Status::with_data(
+                    StatusCode::BAD_REQUEST,
+                    format!("{{ \"field\": \"{}\" }}", Self::FORM_FIELD_NAME).into(),
+                )
+            }
         };
 
         let mut status = Status::with_data(StatusCode::OK, name.to_string().into());
         // Give text content-type so `Status::message()` works
-        status.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static("text/plain"));
+        status
+            .headers_mut()
+            .insert(header::CONTENT_TYPE, HeaderValue::from_static("text/plain"));
         status
     }
 
@@ -91,15 +106,21 @@ impl Handler for HelloWorldServer {
         let should_fail = match config.get_path(Self::CONFIG_FIELD_FAIL) {
             Ok(val) => match val {
                 Some(val) => val,
-                None => return Status::with_data(
-                    StatusCode::BAD_REQUEST, "missing config field".to_string().into()
-                ),
+                None => {
+                    return Status::with_data(
+                        StatusCode::BAD_REQUEST,
+                        "missing config field".to_string().into(),
+                    )
+                }
             },
             Err(err) => return Status::with_data(StatusCode::BAD_REQUEST, err.into()),
         };
 
         if should_fail {
-            Status::with_data(StatusCode::BAD_REQUEST, "requested failure".to_string().into())
+            Status::with_data(
+                StatusCode::BAD_REQUEST,
+                "requested failure".to_string().into(),
+            )
         } else {
             Status::with_data(StatusCode::OK, Bytes::new())
         }
@@ -111,11 +132,13 @@ impl Handler for HelloWorldServer {
 async fn test_connection_validate() {
     let server = utils::get_timed_server().await;
     utils::delay().await;
-    
+
     let mut client = utils::get_client().await;
     let config = utils::get_valid_config();
 
-    let status = client.validate(config).await
+    let status = client
+        .validate(config)
+        .await
         .expect("validate operation should not error");
 
     utils::delay().await;
@@ -132,11 +155,13 @@ async fn test_connection_validate() {
 async fn test_connection_validate_failure() {
     let server = utils::get_timed_server().await;
     utils::delay().await;
-    
+
     let mut client = utils::get_client().await;
     let config = utils::get_invalid_config();
 
-    let status = client.validate(config).await
+    let status = client
+        .validate(config)
+        .await
         .expect("validate operation should not error");
 
     utils::delay().await;
@@ -158,7 +183,9 @@ async fn test_connection_handle() {
     let config = utils::get_valid_config();
     let form = utils::get_valid_form();
 
-    let status = client.handle(config, form).await
+    let status = client
+        .handle(config, form)
+        .await
         .expect("handle operation should not error");
 
     utils::delay().await;

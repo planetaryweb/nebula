@@ -63,9 +63,9 @@ mod tests {
     #[test]
     #[cfg(feature = "server-warp")]
     fn status_rejection_is_a_status() {
-        assert!(Status::<Empty>::rejection_is_status(&reject::custom(Status::new(
-            StatusCode::IM_A_TEAPOT
-        ))));
+        assert!(Status::<Empty>::rejection_is_status(&reject::custom(
+            Status::new(StatusCode::IM_A_TEAPOT)
+        )));
     }
 
     #[test]
@@ -79,7 +79,7 @@ mod tests {
     fn rejection_from_status() {
         let data = vec![0u8, 1u8, 2u8, 3u8, 4u8];
         let status = Status::with_data(StatusCode::IM_A_TEAPOT, data.clone());
-        
+
         let rej = reject::Rejection::from(status.clone());
         let rej_status = rej.find::<Status<Vec<u8>>>().unwrap();
 
@@ -98,7 +98,7 @@ pub enum Error {
     NotStatus(Rejection),
 }
 
-/// A trait alias for marking associated data inside of a container with the 
+/// A trait alias for marking associated data inside of a container with the
 /// traits necessary to be used.
 pub trait StatusInnerData: Clone + Debug + Send + Sync + 'static {}
 impl<T: Clone + Debug + Send + Sync + 'static> StatusInnerData for T {}
@@ -140,7 +140,7 @@ impl Status {
     pub fn new(code: StatusCode) -> Status<Empty> {
         Status {
             c: code,
-            data: Empty{},
+            data: Empty {},
             data_bytes: Bytes::new(),
             h: HeaderMap::new(),
         }
@@ -247,7 +247,7 @@ impl<T: StatusData> Status<T> {
 }
 
 #[cfg(feature = "server-warp")]
-impl <T: StatusData> From<Status<T>> for Rejection {
+impl<T: StatusData> From<Status<T>> for Rejection {
     fn from(status: Status<T>) -> Self {
         reject::custom(status)
     }
