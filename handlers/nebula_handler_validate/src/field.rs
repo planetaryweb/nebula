@@ -1,6 +1,8 @@
 use nebula_form::{Form, Field, FormFile as File};
 use regex::Regex;
+use serde::{Serialize, Deserialize};
 use std::collections::HashSet;
+use std::fmt;
 
 #[cfg(test)]
 mod tests {
@@ -156,7 +158,7 @@ impl Default for EmailType {
     }
 }
 
-impl Display for EmailType {
+impl fmt::Display for EmailType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::HTML5 => write!(f, "values accepted by the HTML5 email field"),
@@ -176,8 +178,8 @@ pub(crate) struct EmailOptions {
 impl Validator for EmailOptions {
     fn validate_text(&self, text: &str) -> Result<(), ValidationError> {
         let regex = match self.regex_type {
-            EmailType::HTML5 => &regexes::EMAIL_HTML5,
-            EmailType::RFC_5322 => &regexes::EMAIL_RFC_5322,
+            EmailType::HTML5 => &*regexes::EMAIL_HTML5,
+            EmailType::RFC_5322 => &*regexes::EMAIL_RFC_5322,
         };
 
         if !regex.is_match(text) {
@@ -201,10 +203,10 @@ impl Validator for EmailOptions {
             },
             None => match self.domain_blacklist {
                 Some(bset) => {
-                    if wset.iter().any(|s| s.eq_ignore_ascii_case(domain)) {
+                    if bset.iter().any(|s| s.eq_ignore_ascii_case(domain)) {
                         return Err(ValidationError::InvalidValue(
                             text.to_string(),
-                            format!("banned domains: {}", wset.join(", ")),
+                            format!("banned domains: {}", bset.join(", ")),
                         ));
                     }
                 },
