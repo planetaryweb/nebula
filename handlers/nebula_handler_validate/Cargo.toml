@@ -7,8 +7,14 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+bytes = "0.5"
 lazy_static = "1.4"
 nebula_form = { version = "0.1", path = "../../nebula_form" }
 nebula_rpc = { version = "0.1", path = "../../nebula_rpc" }
+ordered-float = "2"
 regex = "1.3"
 serde = { version = "1.0", features = [ "derive" ] }
+url = "2.1"
+
+[dev-dependencies]
+serde_test = "1.0"

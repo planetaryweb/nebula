@@ -62,34 +62,76 @@ mod tests {
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub enum Value {
-    Leaf(String),
+    LeafSingle(String),
+    LeafList(Vec<String>),
     Node(Config),
 }
 
 pub type Config = HashMap<String, Value>;
 
+pub enum PathError<U> {
+    EndedEarly(String),
+    IsList,
+    IsMap,
+    IsSingle,
+    Parse(U),
+}
+
 pub trait ConfigExt {
-    fn get_path<T, U>(&self, key: &str) -> Result<Option<T>, String>
+    fn get_path<U>(&self, key: &str) -> Result<Option<&Value>, PathError<U>>;
+
+    fn get_path_list<T, U, V>(&self, key: &str) -> Result<Option<V>, PathError<U>>
+        where T: FromStr<Err = U>, U: std::fmt::Display + ToString, V: std::iter::FromIterator<T>;
+
+    fn get_path_single<T, U>(&self, key: &str) -> Result<Option<T>, PathError<U>>
         where T: FromStr<Err = U>, U: std::fmt::Display + ToString;
 }
 
 impl ConfigExt for Config {
-    fn get_path<T, U>(&self, key: &str) -> Result<Option<T>, String>
-        where T: FromStr<Err = U>, U: std::fmt::Display + ToString {
+    fn get_path<U>(&self, key: &str) -> Result<Option<&Value>, PathError<U>> {
         let path = key.split('.');
         let mut cfg = self;
-        let mut txt = None;
+        let mut v = None;
 
-        for seg in path {
+        for seg in path.clone() {
+            if let Some(val) = v {
+                match val {
+                    &Value::Node(_) => {},
+                    _ => return Err(PathError::EndedEarly(path.collect::<Vec<&str>>().join("."))),
+                }
+            }
+
             match cfg.get(seg) {
                 None => return Ok(None),
-                Some(val) => match val {
-                    Value::Leaf(text) => txt = Some(text.as_ref()),
-                    Value::Node(conf) => cfg = conf
+                Some(val) => {
+                    if let Value::Node(conf) = val {
+                        cfg = &conf
+                    }
+                    v = Some(val);
                 }
             }
         }
 
-        txt.map(str::parse).transpose().map_err(|err: U| err.to_string())
+        Ok(v)
+    }
+
+    fn get_path_list<T, U, V>(&self, key: &str) -> Result<Option<V>, PathError<U>>
+        where T: FromStr<Err = U>, U: std::fmt::Display + ToString, V: std::iter::FromIterator<T> {
+        self.get_path(key)?.map(|val| match val {
+            Value::LeafSingle(_) => Err(PathError::IsSingle),
+            Value::Node(_) => Err(PathError::IsMap),
+            Value::LeafList(list) => list.into_iter()
+                .map(|txt| txt.parse::<T>().map_err(PathError::Parse))
+                .collect::<Result<V, PathError<U>>>()
+        }).transpose()
+    }
+
+    fn get_path_single<T, U>(&self, key: &str) -> Result<Option<T>, PathError<U>>
+        where T: FromStr<Err = U>, U: std::fmt::Display + ToString {
+        self.get_path(key)?.map(|val| match val {
+            Value::LeafSingle(txt) => txt.parse().map_err(PathError::Parse),
+            Value::LeafList(_) => Err(PathError::IsList),
+            Value::Node(_) => Err(PathError::IsMap),
+        }).transpose()
     }
 }
