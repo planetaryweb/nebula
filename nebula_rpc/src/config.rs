@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt;
 use std::str::FromStr;
 use serde::Deserialize;
 
@@ -21,41 +22,41 @@ mod tests {
 
     fn get_config() -> Config {
         let mut inner3 = Config::new();
-        inner3.insert(THIRD_LEVEL_KEY.to_string(), Value::Leaf(FOURTH_LEVEL_VAL.to_string()));
-        inner3.insert(THIRD_LEVEL_VAL_KEY.to_string(), Value::Leaf(THIRD_LEVEL_VAL.to_string()));
+        inner3.insert(THIRD_LEVEL_KEY.to_string(), Value::LeafSingle(FOURTH_LEVEL_VAL.to_string()));
+        inner3.insert(THIRD_LEVEL_VAL_KEY.to_string(), Value::LeafSingle(THIRD_LEVEL_VAL.to_string()));
         let mut inner2 = Config::new();
         inner2.insert(SECOND_LEVEL_KEY.to_string(), Value::Node(inner3));
         let mut config = Config::new();
         config.insert(TOP_LEVEL_KEY.to_string(), Value::Node(inner2));
-        config.insert(TOP_LEVEL_VAL_KEY.to_string(), Value::Leaf(TOP_LEVEL_VAL.to_string()));
+        config.insert(TOP_LEVEL_VAL_KEY.to_string(), Value::LeafSingle(TOP_LEVEL_VAL.to_string()));
         config
     }
 
     #[test]
     fn get_path_top_level_key() {
         let config = get_config();
-        let top_val = config.get_path(TOP_LEVEL_VAL_KEY).expect("top-level key should not error");
-        assert_eq!(top_val, Some(TOP_LEVEL_VAL.to_string()));
+        let top_val = config.get_path::<String>(TOP_LEVEL_VAL_KEY).expect("top-level key should not error");
+        assert_eq!(top_val, Some(&Value::LeafSingle(TOP_LEVEL_VAL.to_string())));
     }
 
     #[test]
     fn get_path_nested() {
         let config = get_config();
-        let val = config.get_path(FOURTH_LEVEL_VAL_PATH).expect("nested existing key should not error");
-        assert_eq!(val, Some(FOURTH_LEVEL_VAL.to_string()));
+        let val = config.get_path::<String>(FOURTH_LEVEL_VAL_PATH).expect("nested existing key should not error");
+        assert_eq!(val, Some(&Value::LeafSingle(FOURTH_LEVEL_VAL.to_string())));
     }
 
     #[test]
     fn get_path_int_from_str() {
         let config = get_config();
-        let val = config.get_path(THIRD_LEVEL_VAL_PATH).expect("nested existing key should not error");
-        assert_eq!(val, Some(THIRD_LEVEL_INT));
+        let val = config.get_path::<String>(THIRD_LEVEL_VAL_PATH).expect("nested existing key should not error");
+        assert_eq!(val, Some(&Value::LeafSingle(THIRD_LEVEL_INT.to_string())));
     }
 
     #[test]
     fn get_path_missing_key_is_none() {
         let config = get_config();
-        let result: Option<String> = config.get_path(NONEXISTENT_KEY).expect("missing key should return Ok(None), not an error");
+        let result = config.get_path::<String>(NONEXISTENT_KEY).expect("missing key should return Ok(None), not an error");
         assert_eq!(result, None);
     }
 }
@@ -69,12 +70,25 @@ pub enum Value {
 
 pub type Config = HashMap<String, Value>;
 
+#[derive(Debug)]
 pub enum PathError<U> {
     EndedEarly(String),
     IsList,
     IsMap,
     IsSingle,
     Parse(U),
+}
+
+impl<U: fmt::Display> fmt::Display for PathError<U> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::EndedEarly(path) => write!(f, "failed to read entire path: {}", path),
+            Self::IsList => write!(f, "expected a list"),
+            Self::IsMap => write!(f, "expected a map"),
+            Self::IsSingle => write!(f, "expected a single string/number/etc. value"),
+            Self::Parse(err) => write!(f, "parse error: {}", err),
+        }
+    }
 }
 
 pub trait ConfigExt {

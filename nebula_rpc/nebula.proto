@@ -25,9 +25,14 @@ message Form {
 
 message ConfigValue {
     oneof value {
-        string leaf = 1;
-        Config node = 2;
+        string leaf_single = 1;
+        ValueList leaf_list = 2;
+        Config node = 3;
     }
+}
+
+message ValueList {
+    repeated string values = 1;
 }
 
 message Config {

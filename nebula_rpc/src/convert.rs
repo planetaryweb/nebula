@@ -69,9 +69,9 @@ mod tests {
 
     fn get_config() -> Config {
         let mut inner = Config::new();
-        inner.insert("baz".to_string(), ConfigValue::Leaf("quux".to_string()));
+        inner.insert("baz".to_string(), ConfigValue::LeafSingle("quux".to_string()));
         let mut config = Config::new();
-        config.insert("top-level".to_string(), ConfigValue::Leaf("foobar".to_string()));
+        config.insert("top-level".to_string(), ConfigValue::LeafSingle("foobar".to_string()));
         config.insert("bar".to_string(), ConfigValue::Node(inner));
         config
     }
@@ -79,14 +79,14 @@ mod tests {
     fn get_rpc_config() -> rpc::Config {
         let mut inner = HashMap::new();
         inner.insert("baz".to_string(), rpc::ConfigValue {
-            value: Some(rpc::config_value::Value::Leaf("quux".to_string())),
+            value: Some(rpc::config_value::Value::LeafSingle("quux".to_string())),
         });
         let inner = rpc::Config {
             config: inner,
         };
         let mut config = HashMap::new();
         config.insert("top-level".to_string(), rpc::ConfigValue {
-            value: Some(rpc::config_value::Value::Leaf("foobar".to_string())),
+            value: Some(rpc::config_value::Value::LeafSingle("foobar".to_string())),
         });
         config.insert("bar".to_string(), rpc::ConfigValue {
             value: Some(rpc::config_value::Value::Node(inner))
@@ -412,8 +412,13 @@ impl IntoRPC for ConfigValue {
     type RPCType = rpc::ConfigValue;
     fn into_rpc(self) -> Result<Self::RPCType, Error> {
         let result = match self {
-            ConfigValue::Leaf(text) => {
-                let value = rpc::config_value::Value::Leaf(text);
+            ConfigValue::LeafSingle(text) => {
+                let value = rpc::config_value::Value::LeafSingle(text);
+                rpc::ConfigValue { value: Some(value) }
+            },
+            ConfigValue::LeafList(items) => {
+                let list = rpc::ValueList { values: items };
+                let value = rpc::config_value::Value::LeafList(list);
                 rpc::ConfigValue { value: Some(value) }
             },
             ConfigValue::Node(conf) => {
@@ -431,7 +436,8 @@ impl FromRPC for ConfigValue {
     fn from_rpc(other: Self::RPCType) -> Result<Self, Error> {
         use rpc::config_value::Value as RPCValue;
         let result = match other.value.ok_or_else(|| Error::UnexpectedNone("value"))? {
-            RPCValue::Leaf(text) => ConfigValue::Leaf(text),
+            RPCValue::LeafSingle(text) => ConfigValue::LeafSingle(text),
+            RPCValue::LeafList(items) => ConfigValue::LeafList(items.values),
             RPCValue::Node(conf) => ConfigValue::Node(Config::from_rpc(conf)?),
         };
 

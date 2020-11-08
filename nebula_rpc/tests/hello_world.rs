@@ -1,3 +1,4 @@
+use std::str::FromStr;
 use bytes::Bytes;
 use http::header::{self, HeaderValue};
 use nebula_form::{Form, Field};
@@ -37,13 +38,13 @@ mod utils {
 
     pub fn get_valid_config() -> Config {
         let mut config = Config::new();
-        config.insert(HelloWorldServer::CONFIG_FIELD_FAIL.to_string(), ConfigValue::Leaf("false".to_string()));
+        config.insert(HelloWorldServer::CONFIG_FIELD_FAIL.to_string(), ConfigValue::LeafSingle("false".to_string()));
         config
     }
 
     pub fn get_invalid_config() -> Config {
         let mut config = Config::new();
-        config.insert(HelloWorldServer::CONFIG_FIELD_FAIL.to_string(), ConfigValue::Leaf("true".to_string()));
+        config.insert(HelloWorldServer::CONFIG_FIELD_FAIL.to_string(), ConfigValue::LeafSingle("true".to_string()));
         config
     }
 
@@ -88,15 +89,19 @@ impl Handler for HelloWorldServer {
     }
 
     async fn validate(&self, config: Config) -> Status<Bytes> {
-        let should_fail = match config.get_path(Self::CONFIG_FIELD_FAIL) {
+        let should_fail = match config.get_path::<String>(Self::CONFIG_FIELD_FAIL) {
             Ok(val) => match val {
-                Some(val) => val,
+                Some(val) => match val {
+                    ConfigValue::LeafSingle(txt) => FromStr::from_str(&txt),
+                    ConfigValue::LeafList(_) => return Status::with_data(StatusCode::BAD_REQUEST, Bytes::new()),
+                    ConfigValue::Node(_) => return Status::with_data(StatusCode::BAD_REQUEST, Bytes::new()),
+                },
                 None => return Status::with_data(
                     StatusCode::BAD_REQUEST, "missing config field".to_string().into()
                 ),
             },
-            Err(err) => return Status::with_data(StatusCode::BAD_REQUEST, err.into()),
-        };
+            Err(err) => return Status::with_data(StatusCode::BAD_REQUEST, err.to_string().into()),
+        }.expect("str to String should be Infallible");
 
         if should_fail {
             Status::with_data(StatusCode::BAD_REQUEST, "requested failure".to_string().into())
