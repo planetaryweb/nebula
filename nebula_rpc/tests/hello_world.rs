@@ -89,7 +89,7 @@ impl Handler for HelloWorldServer {
     }
 
     async fn validate(&self, config: Config) -> Status<Bytes> {
-        let should_fail = match config.get_path::<String>(Self::CONFIG_FIELD_FAIL) {
+        let should_fail = match config.get_path(Self::CONFIG_FIELD_FAIL) {
             Ok(val) => match val {
                 Some(val) => match val {
                     ConfigValue::LeafSingle(txt) => FromStr::from_str(&txt),

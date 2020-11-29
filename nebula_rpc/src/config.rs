@@ -35,28 +35,28 @@ mod tests {
     #[test]
     fn get_path_top_level_key() {
         let config = get_config();
-        let top_val = config.get_path::<String>(TOP_LEVEL_VAL_KEY).expect("top-level key should not error");
+        let top_val = config.get_path(TOP_LEVEL_VAL_KEY).expect("top-level key should not error");
         assert_eq!(top_val, Some(&Value::LeafSingle(TOP_LEVEL_VAL.to_string())));
     }
 
     #[test]
     fn get_path_nested() {
         let config = get_config();
-        let val = config.get_path::<String>(FOURTH_LEVEL_VAL_PATH).expect("nested existing key should not error");
+        let val = config.get_path(FOURTH_LEVEL_VAL_PATH).expect("nested existing key should not error");
         assert_eq!(val, Some(&Value::LeafSingle(FOURTH_LEVEL_VAL.to_string())));
     }
 
     #[test]
     fn get_path_int_from_str() {
         let config = get_config();
-        let val = config.get_path::<String>(THIRD_LEVEL_VAL_PATH).expect("nested existing key should not error");
+        let val = config.get_path(THIRD_LEVEL_VAL_PATH).expect("nested existing key should not error");
         assert_eq!(val, Some(&Value::LeafSingle(THIRD_LEVEL_INT.to_string())));
     }
 
     #[test]
     fn get_path_missing_key_is_none() {
         let config = get_config();
-        let result = config.get_path::<String>(NONEXISTENT_KEY).expect("missing key should return Ok(None), not an error");
+        let result = config.get_path(NONEXISTENT_KEY).expect("missing key should return Ok(None), not an error");
         assert_eq!(result, None);
     }
 }
@@ -71,18 +71,19 @@ pub enum Value {
 pub type Config = HashMap<String, Value>;
 
 #[derive(Debug)]
-pub enum PathError<U> {
-    EndedEarly(String),
+pub enum ConfigError {
+    Missing(String),
     IsList,
     IsMap,
     IsSingle,
-    Parse(U),
+    // For simplicity's sake, convert the parse error to string first
+    Parse(String),
 }
 
-impl<U: fmt::Display> fmt::Display for PathError<U> {
+impl fmt::Display for ConfigError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::EndedEarly(path) => write!(f, "failed to read entire path: {}", path),
+            Self::Missing(path) => write!(f, "failed to read config item: {}", path),
             Self::IsList => write!(f, "expected a list"),
             Self::IsMap => write!(f, "expected a map"),
             Self::IsSingle => write!(f, "expected a single string/number/etc. value"),
@@ -92,17 +93,17 @@ impl<U: fmt::Display> fmt::Display for PathError<U> {
 }
 
 pub trait ConfigExt {
-    fn get_path<U>(&self, key: &str) -> Result<Option<&Value>, PathError<U>>;
+    fn get_path(&self, key: &str) -> Result<Option<&Value>, ConfigError>;
 
-    fn get_path_list<T, U, V>(&self, key: &str) -> Result<Option<V>, PathError<U>>
-        where T: FromStr<Err = U>, U: std::fmt::Display + ToString, V: std::iter::FromIterator<T>;
+    fn get_path_list<T, V>(&self, key: &str) -> Result<Option<V>, ConfigError>
+        where T: FromStr, T::Err: std::fmt::Display + ToString, V: std::iter::FromIterator<T>;
 
-    fn get_path_single<T, U>(&self, key: &str) -> Result<Option<T>, PathError<U>>
-        where T: FromStr<Err = U>, U: std::fmt::Display + ToString;
+    fn get_path_single<T>(&self, key: &str) -> Result<Option<T>, ConfigError>
+        where T: FromStr, T::Err: std::fmt::Display + ToString;
 }
 
 impl ConfigExt for Config {
-    fn get_path<U>(&self, key: &str) -> Result<Option<&Value>, PathError<U>> {
+    fn get_path(&self, key: &str) -> Result<Option<&Value>, ConfigError> {
         let path = key.split('.');
         let mut cfg = self;
         let mut v = None;
@@ -111,7 +112,7 @@ impl ConfigExt for Config {
             if let Some(val) = v {
                 match val {
                     &Value::Node(_) => {},
-                    _ => return Err(PathError::EndedEarly(path.collect::<Vec<&str>>().join("."))),
+                    _ => return Err(ConfigError::Missing(path.collect::<Vec<&str>>().join("."))),
                 }
             }
 
@@ -129,23 +130,23 @@ impl ConfigExt for Config {
         Ok(v)
     }
 
-    fn get_path_list<T, U, V>(&self, key: &str) -> Result<Option<V>, PathError<U>>
-        where T: FromStr<Err = U>, U: std::fmt::Display + ToString, V: std::iter::FromIterator<T> {
+    fn get_path_list<T, V>(&self, key: &str) -> Result<Option<V>, ConfigError>
+        where T: FromStr, T::Err: std::fmt::Display + ToString, V: std::iter::FromIterator<T> {
         self.get_path(key)?.map(|val| match val {
-            Value::LeafSingle(_) => Err(PathError::IsSingle),
-            Value::Node(_) => Err(PathError::IsMap),
+            Value::LeafSingle(_) => Err(ConfigError::IsSingle),
+            Value::Node(_) => Err(ConfigError::IsMap),
             Value::LeafList(list) => list.into_iter()
-                .map(|txt| txt.parse::<T>().map_err(PathError::Parse))
-                .collect::<Result<V, PathError<U>>>()
+                .map(|txt| txt.parse::<T>().map_err(|err: T::Err| ConfigError::Parse(err.to_string())))
+                .collect::<Result<V, ConfigError>>()
         }).transpose()
     }
 
-    fn get_path_single<T, U>(&self, key: &str) -> Result<Option<T>, PathError<U>>
-        where T: FromStr<Err = U>, U: std::fmt::Display + ToString {
+    fn get_path_single<T>(&self, key: &str) -> Result<Option<T>, ConfigError>
+        where T: FromStr, T::Err: std::fmt::Display + ToString {
         self.get_path(key)?.map(|val| match val {
-            Value::LeafSingle(txt) => txt.parse().map_err(PathError::Parse),
-            Value::LeafList(_) => Err(PathError::IsList),
-            Value::Node(_) => Err(PathError::IsMap),
+            Value::LeafSingle(txt) => txt.parse().map_err(|err: T::Err| ConfigError::Parse(err.to_string())),
+            Value::LeafList(_) => Err(ConfigError::IsList),
+            Value::Node(_) => Err(ConfigError::IsMap),
         }).transpose()
     }
 }

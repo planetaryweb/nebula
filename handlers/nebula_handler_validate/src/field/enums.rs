@@ -1,4 +1,6 @@
 use super::{ValidationError, Validator};
+use nebula_rpc::config::{Config, ConfigError, ConfigExt};
+use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt;
 
@@ -118,9 +120,33 @@ pub(crate) struct EnumValidator {
     pub valid_values: Vec<String>,
 }
 
+impl EnumValidator {
+    const FIELD_CASE_SENSITIVE: &'static str = "case-sensitive";
+    const FIELD_VALID_VALUES: &'static str = "valid-values";
+}
+
+impl TryFrom<Config> for EnumValidator {
+    type Error = ConfigError;
+
+    fn try_from(other: Config) -> Result<Self, ConfigError> {
+        let case_sensitive: bool = other.get_path_single(Self::FIELD_CASE_SENSITIVE)?
+            .unwrap_or(true); // Default to case sensitive
+
+        let valid_values: Vec<String> = other.get_path_list(Self::FIELD_VALID_VALUES)?
+            .ok_or(ConfigError::Missing(Self::FIELD_VALID_VALUES.to_owned()))?;
+        let valid_values = if case_sensitive {
+            valid_values
+        } else {
+            valid_values.into_iter().map(|s| s.to_lowercase()).collect()
+        };
+
+        Ok(Self { case_sensitive, valid_values })
+    }
+}
+
 impl Validator for EnumValidator {
     type Error = EnumError;
-    fn validate_text(&self, text: &str) -> Result<(), Self::Error> {
+    fn validate_text(&self, text: &str) -> Result<(), EnumError> {
         if self.case_sensitive && self.valid_values.iter().any(|s| s == text) {
             Ok(())
         } else if !self.case_sensitive && self.valid_values.iter().any(|s| s.eq_ignore_ascii_case(text)) {

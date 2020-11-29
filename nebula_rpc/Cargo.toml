@@ -17,6 +17,7 @@ nebula_form = { version = "0.1", path = "../nebula_form" }
 nebula_status = { version = "0.3" , path = "../nebula_status" }
 nix = "0.18"
 prost = "0.6"
+prost-types = "0.6"
 serde = { version = "1.0", features = ["derive"] }
 structopt = "0.3"
 tonic = "0.3"

@@ -1,7 +1,8 @@
 use super::{Validator, ValidationError};
+use nebula_rpc::config::{Config, ConfigError};
 use lazy_static::lazy_static;
 use regex::Regex;
-use std::convert::From;
+use std::convert::{From, TryFrom};
 use std::error::Error;
 use std::fmt;
 
@@ -171,14 +172,21 @@ impl Error for PhoneError {}
 
 pub(crate) struct PhoneValidator {}
 
+impl TryFrom<Config> for PhoneValidator {
+    type Error = ConfigError;
+    fn try_from(_: Config) -> Result<Self, ConfigError> {
+        Ok(Self{})
+    }
+}
+
 impl Validator for PhoneValidator {
     type Error = PhoneError;
-    fn validate_text(&self, text: &str) -> Result<(), Self::Error> {
+    fn validate_text(&self, text: &str) -> Result<(), PhoneError> {
         if !GENERIC_PHONE_REGEX.is_match(text) {
             if INTL_PREFIX_REGEX.is_match(text) {
-                return Err(Self::Error::Invalid(text.to_string()))
+                return Err(PhoneError::Invalid(text.to_string()))
             } else {
-                return Err(Self::Error::NoPrefix(text.to_string()))
+                return Err(PhoneError::NoPrefix(text.to_string()))
             }
         }
 

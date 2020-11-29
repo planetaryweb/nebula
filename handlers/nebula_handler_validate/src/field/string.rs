@@ -1,9 +1,10 @@
 use super::{Validator, ValidationError};
+use nebula_rpc::config::{Config, ConfigError, ConfigExt};
 use regex::Regex;
 use serde::{Serialize, Deserialize};
 use serde::de::{self, Deserializer, Visitor};
 use serde::ser::Serializer;
-use std::convert::From;
+use std::convert::{From, TryFrom};
 use std::error::Error;
 use std::fmt;
 
@@ -11,50 +12,6 @@ use std::fmt;
 mod tests {
 	use super::*;
     use serde_test::{assert_tokens, Token};
-
-    #[test]
-    fn string_validator_can_de_serialize() {
-        let validator = StringValidator {
-            min_len: Some(5),
-            max_len: Some(8),
-            regex: Some(Regex::new("^foo$").unwrap()),
-        };
-
-        // serde_test::Token does not have a variant for usize
-        // JSON, at least, uses u64
-        assert_tokens(&validator, &[
-            Token::Struct { name: "StringValidator", len: 3 },
-            Token::Str("min"),
-            Token::Some,
-            Token::U64(5),
-            Token::Str("max"),
-            Token::Some,
-            Token::U64(8),
-            Token::Str("regex"),
-            Token::Some,
-            Token::Str("^foo$"),
-            Token::StructEnd,
-        ]);
-
-        let validator = StringValidator {
-            min_len: None,
-            max_len: None,
-            regex: None,
-        };
-
-        // serde_test::Token does not have a variant for usize
-        // JSON, at least, uses u64
-        assert_tokens(&validator, &[
-            Token::Struct { name: "StringValidator", len: 3 },
-            Token::Str("min"),
-            Token::None,
-            Token::Str("max"),
-            Token::None,
-            Token::Str("regex"),
-            Token::None,
-            Token::StructEnd,
-        ]);
-    }
 
     #[test]
     fn string_validator_enforces_minimum_length() {
@@ -147,17 +104,6 @@ impl<'de> Visitor<'de> for RegexVisitor {
     }
 }
 
-fn serialize_regex<S>(regex: &Option<Regex>, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
-    match regex {
-        None => serializer.serialize_none(),
-        Some(regex) => serializer.serialize_some(&regex.to_string()),
-    }
-}
-
-fn deserialize_regex<'de, D>(deserializer: D) -> Result<Option<Regex>, D::Error> where D: Deserializer<'de> {
-    deserializer.deserialize_option(RegexVisitor)
-}
-
 #[derive(Debug)]
 pub(crate) enum StringError {
     TooShort(usize),
@@ -185,14 +131,29 @@ impl fmt::Display for StringError {
 
 impl Error for StringError {}
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Debug)]
 pub(crate) struct StringValidator {
-    #[serde(rename = "min")]
     pub min_len: Option<usize>,
-    #[serde(rename = "max")]
     pub max_len: Option<usize>,
-    #[serde(serialize_with = "serialize_regex", deserialize_with = "deserialize_regex")]
     pub regex: Option<Regex>,
+}
+
+impl StringValidator {
+    const FIELD_MIN_LENGTH: &'static str = "min";
+    const FIELD_MAX_LENGTH: &'static str = "max";
+    const FIELD_REGEX: &'static str = "regex";
+}
+
+impl TryFrom<Config> for StringValidator {
+    type Error = ConfigError;
+    fn try_from(config: Config) -> Result<Self, ConfigError> {
+        let min_len = config.get_path_single(Self::FIELD_MIN_LENGTH)?;
+        let max_len = config.get_path_single(Self::FIELD_MAX_LENGTH)?;
+        let regex = config.get_path_single::<String>(Self::FIELD_REGEX)?
+            .map(|s| Regex::new(&s)).transpose()
+            .map_err(|err| ConfigError::Parse(err.to_string()))?;
+        Ok(Self { min_len, max_len, regex })
+    }
 }
 
 #[cfg(test)]
@@ -213,22 +174,22 @@ impl std::cmp::PartialEq for StringValidator {
 impl Validator for StringValidator {
     type Error = StringError;
 
-    fn validate_text(&self, text: &str) -> Result<(), Self::Error> {
+    fn validate_text(&self, text: &str) -> Result<(), StringError> {
         if let Some(min) = self.min_len {
             if text.len() < min {
-                return Err(Self::Error::TooShort(min));
+                return Err(StringError::TooShort(min));
             }
         }
 
         if let Some(max) = self.max_len {
             if text.len() > max {
-                return Err(Self::Error::TooLong(max));
+                return Err(StringError::TooLong(max));
             }
         }
 
         if let Some(rgx) = &self.regex {
             if !rgx.is_match(text) {
-                return Err(Self::Error::Invalid);
+                return Err(StringError::Invalid);
             }
         }
 

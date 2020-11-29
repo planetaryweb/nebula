@@ -7,8 +7,10 @@ pub mod string;
 pub mod url;
 
 use nebula_form::{Field, FormFile as File};
+use nebula_rpc::config::{Config, ConfigError};
 use ordered_float::NotNan;
 use serde::de::{self, MapAccess};
+use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt;
 
@@ -59,18 +61,6 @@ fn join_iter<T>(collection: &mut dyn Iterator<Item=&T>, sep: &str) -> String whe
     s
 }
 
-#[debug]
-pub enum ConfigError {
-    // The String in each of these is the map key whose value is invalid
-    ExpectedBool(String),
-    ExpectedFloat(String),
-    ExpectedInt(String),
-    ExpectedMap(String),
-    ExpectedString(String),
-    ExpectedVec(String),
-    Required(String),
-}
-
 #[derive(Debug)]
 pub enum ValidationError {
     NotImplementedText,
@@ -88,21 +78,21 @@ impl fmt::Display for ValidationError {
 
 impl Error for ValidationError {}
 
-pub trait Validator: nebula_rpc::FromRPC<RPCType = nebula_rpc::Config> {
+pub trait Validator: TryFrom<nebula_rpc::Config, Error=ConfigError> {
     type Error: ::std::error::Error + std::convert::From<ValidationError>;
     /// Validate text from a textual form field.
-    fn validate_text(&self, text: &str) -> Result<(), Self::Error> {
-        Err(Self::Error::from(ValidationError::NotImplementedText))
+    fn validate_text(&self, text: &str) -> Result<(), <Self as Validator>::Error> {
+        Err(<Self as Validator>::Error::from(ValidationError::NotImplementedText))
     }
 
     /// Validate a file submitted from a form.
-    fn validate_file(&self, file: &File) -> Result<(), Self::Error> {
-        Err(Self::Error::from(ValidationError::NotImplementedFile))
+    fn validate_file(&self, file: &File) -> Result<(), <Self as Validator>::Error> {
+        Err(<Self as Validator>::Error::from(ValidationError::NotImplementedFile))
     }
 
     /// Validate any given field. Defaults to calling the appropriate `validate_*` method based on
     /// the field type.
-    fn validate(&self, field: &Field) -> Result<(), Self::Error> {
+    fn validate(&self, field: &Field) -> Result<(), <Self as Validator>::Error> {
         match field {
             Field::Text(text) => self.validate_text(text),
             Field::File(file) => self.validate_file(file),

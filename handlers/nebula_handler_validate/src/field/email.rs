@@ -1,9 +1,11 @@
 use super::{ConfigError, Validator, ValidationError};
-use nebula_rpc::{Config, ConfigValue, config::ConfigExt};
+use nebula_rpc::{Config, config::ConfigExt};
 use serde::{Serialize, Deserialize};
 use std::cmp::PartialEq;
 use std::collections::HashSet;
+use std::convert::TryFrom;
 use std::error::Error;
+use std::str::FromStr;
 use std::fmt;
 
 #[cfg(test)]
@@ -83,11 +85,11 @@ mod tests {
         }
     }
 
-    const EMAIL_IN_WHITELIST:  &str = "username@allowed.com";
-    const EMAIL_IN_BLACKLIST:  &str = "username@disallowed.com";
-    const EMAIL_IN_BOTH_LISTS: &str = "username@domain.com";
-    const EMAIL_NOT_IN_LIST:   &str = "username@example.com";
-    const EMAIL_VALID_DOMAIN_INVALID_USER: &str = "user@invalid@domain.com";
+    const EMAIL_IN_WHITELIST:  &'static str = "username@allowed.com";
+    const EMAIL_IN_BLACKLIST:  &'static str = "username@disallowed.com";
+    const EMAIL_IN_BOTH_LISTS: &'static str = "username@domain.com";
+    const EMAIL_NOT_IN_LIST:   &'static str = "username@example.com";
+    const EMAIL_VALID_DOMAIN_INVALID_USER: &'static str = "user@invalid@domain.com";
 
     fn get_email_validator() -> EmailValidator {
         let mut domain_whitelist = HashSet::new();
@@ -199,6 +201,18 @@ pub enum EmailType {
     Rfc5322,
 }
 
+impl FromStr for EmailType {
+    type Err = ConfigError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "html5" => Ok(EmailType::Html5),
+            "rfc5322" => Ok(EmailType::Rfc5322),
+            _ => Err(ConfigError::Parse(format!("email type must be one of 'html5' or 'rfc5322': got {}", s))),
+        }
+    }
+}
+
 impl Default for EmailType {
     fn default() -> Self {
         Self::Html5
@@ -248,17 +262,18 @@ pub(crate) struct EmailValidator {
 }
 
 impl EmailValidator {
-    const FIELD_DOMAIN_BLACKLIST: &str = "domain-blacklist";
-    const FIELD_DOMAIN_WHITELIST: &str = "domain-whitelist";
-    const FIELD_REGEX_TYPE: &str = "type";
+    const FIELD_DOMAIN_BLACKLIST: &'static str = "domain-blacklist";
+    const FIELD_DOMAIN_WHITELIST: &'static str = "domain-whitelist";
+    const FIELD_REGEX_TYPE: &'static str = "type";
 }
 
 impl TryFrom<Config> for EmailValidator {
-    fn try_from(other: Config) -> Result<Self, ConfigError> {
+    type Error = ConfigError;
+    fn try_from(config: Config) -> Result<Self, ConfigError> {
         let domain_blacklist = config.get_path_list(Self::FIELD_DOMAIN_BLACKLIST)?;
         let domain_whitelist = config.get_path_list(Self::FIELD_DOMAIN_WHITELIST)?;
         let regex_type = config.get_path_single(Self::FIELD_REGEX_TYPE)?
-            .ok_or(ConfigError::Required(Self::FIELD_REGEX_TYPE.to_string()))?;
+            .ok_or(ConfigError::Missing(Self::FIELD_REGEX_TYPE.to_string()))?;
 
         let result = EmailValidator {
             domain_whitelist,
@@ -272,14 +287,14 @@ impl TryFrom<Config> for EmailValidator {
 
 impl Validator for EmailValidator {
     type Error = EmailError;
-    fn validate_text(&self, text: &str) -> Result<(), Self::Error> {
+    fn validate_text(&self, text: &str) -> Result<(), EmailError> {
         let regex = match self.regex_type {
             EmailType::Html5 => &*regexes::EMAIL_HTML5,
             EmailType::Rfc5322 => &*regexes::EMAIL_RFC_5322,
         };
 
         if !regex.is_match(text) {
-            return Err(Self::Error::NotValidEmail(
+            return Err(EmailError::NotValidEmail(
                 self.regex_type,
                 text.to_string(),
             ));
@@ -291,7 +306,7 @@ impl Validator for EmailValidator {
         match &self.domain_whitelist {
             Some(wset) => {
                 if !wset.iter().any(|s| s.eq_ignore_ascii_case(domain)) {
-                    return Err(Self::Error::DomainNotWhitelisted(
+                    return Err(EmailError::DomainNotWhitelisted(
                         domain.to_string(),
                     ));
                 }
@@ -299,7 +314,7 @@ impl Validator for EmailValidator {
             None => match &self.domain_blacklist {
                 Some(bset) => {
                     if bset.iter().any(|s| s.eq_ignore_ascii_case(domain)) {
-                        return Err(Self::Error::DomainBlacklisted(
+                        return Err(EmailError::DomainBlacklisted(
                             domain.to_string(),
                         ));
                     }

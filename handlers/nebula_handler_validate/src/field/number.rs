@@ -1,8 +1,10 @@
 use super::{join_iter, Validator, ValidationError};
+use nebula_rpc::config::{Config, ConfigError, ConfigExt};
 use lazy_static::lazy_static;
 use regex::Regex;
 use std::cmp::Ord;
 use std::collections::BTreeSet;
+use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt;
 use std::str::FromStr;
@@ -139,11 +141,14 @@ mod tests {
     }
 }
 
-pub trait NumberType<T>: FromStr + fmt::Debug + fmt::Display + Ord + Copy {}
-impl<T> NumberType<T> for T where T: FromStr + fmt::Debug + fmt::Display + Ord + Copy {}
+pub trait NumberType: FromStr + fmt::Debug + fmt::Display + Ord + Copy {}
+impl<T> NumberType for T where T: FromStr + fmt::Debug + fmt::Display + Ord + Copy {}
+
+pub trait ErrorTrait: fmt::Debug + fmt::Display {}
+impl<T> ErrorTrait for T where T: fmt::Debug + fmt::Display {}
 
 #[derive(Debug)]
-pub(crate) enum NumberError<T> where T: NumberType<T> {
+pub(crate) enum NumberError<T> where T: NumberType {
     NotANumber(String),
     ParseFailure(String),
     TooSmall(T),
@@ -152,13 +157,13 @@ pub(crate) enum NumberError<T> where T: NumberType<T> {
     Validation(ValidationError),
 }
 
-impl<T> From<ValidationError> for NumberError<T> where T: NumberType<T> {
+impl<T> From<ValidationError> for NumberError<T> where T: NumberType {
     fn from(err: ValidationError) -> Self {
         Self::Validation(err)
     }
 }
 
-impl<T> fmt::Display for NumberError<T> where T: NumberType<T> {
+impl<T> fmt::Display for NumberError<T> where T: NumberType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NotANumber(val) => write!(f, "{} is not a number", val),
@@ -171,43 +176,59 @@ impl<T> fmt::Display for NumberError<T> where T: NumberType<T> {
     }
 }
 
-impl<T> Error for NumberError<T> where T: NumberType<T> {}
+impl<T> Error for NumberError<T> where T: NumberType {}
 
 lazy_static! {
     static ref NUMBER_REGEX: Regex = Regex::new(r#"\d+"#).unwrap();
 }
 
-pub(crate) struct NumberValidator<T> where T: NumberType<T> {
+pub(crate) struct NumberValidator<T> where T: NumberType {
     pub min: Option<T>,
     pub max: Option<T>,
     pub valid_list: Option<BTreeSet<T>>,
 }
 
-impl<T> Validator for NumberValidator<T> where T: NumberType<T>, <T as FromStr>::Err: fmt::Debug {
+impl<T> NumberValidator<T> where T: NumberType {
+    const FIELD_MIN: &'static str = "min";
+    const FIELD_MAX: &'static str = "max";
+    const FIELD_VALID_LIST: &'static str = "valid-list";
+}
+
+impl<T> TryFrom<Config> for NumberValidator<T> where T: NumberType, <T as FromStr>::Err: ErrorTrait {
+    type Error = ConfigError;
+    fn try_from(config: Config) -> Result<Self, ConfigError> {
+        let min = config.get_path_single(Self::FIELD_MIN)?;
+        let max = config.get_path_single(Self::FIELD_MAX)?;
+        let valid_list = config.get_path_list(Self::FIELD_VALID_LIST)?;
+        Ok(Self { min, max, valid_list })
+    }
+}
+
+impl<T> Validator for NumberValidator<T> where T: NumberType, <T as FromStr>::Err: ErrorTrait {
     type Error = NumberError<T>;
-    fn validate_text(&self, text: &str) -> Result<(), Self::Error> {
+    fn validate_text(&self, text: &str) -> Result<(), NumberError<T>> {
         if !NUMBER_REGEX.is_match(text) {
-            return Err(Self::Error::NotANumber(text.to_string()));
+            return Err(NumberError::<T>::NotANumber(text.to_string()));
         }
 
-        let num: T = text.parse().map_err(|err| Self::Error::ParseFailure(format!("{:?}", err)))?;
+        let num: T = text.parse().map_err(|err| NumberError::<T>::ParseFailure(format!("{:?}", err)))?;
 
         match &self.valid_list {
             Some(list) => {
                 if !list.contains(&num) {
-                    return Err(Self::Error::NotInSet(join_iter(&mut list.iter(), ", ")));
+                    return Err(NumberError::<T>::NotInSet(join_iter(&mut list.iter(), ", ")));
                 }
             },
             None => {
                 if let Some(min) = &self.min {
                     if num < *min {
-                        return Err(Self::Error::TooSmall(*min));
+                        return Err(NumberError::<T>::TooSmall(*min));
                     }
                 }
 
                 if let Some(max) = &self.max {
                     if num > *max {
-                        return Err(Self::Error::TooLarge(*max));
+                        return Err(NumberError::<T>::TooLarge(*max));
                     }
                 }
             }

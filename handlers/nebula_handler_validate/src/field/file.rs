@@ -1,6 +1,8 @@
 use super::{join_iter, ValidationError, Validator};
 use nebula_form::FormFile as File;
+use nebula_rpc::config::{Config, ConfigError, ConfigExt};
 use std::collections::HashSet;
+use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt;
 
@@ -111,6 +113,22 @@ impl Error for FileError {}
 pub(crate) struct FileValidator {
     pub content_types: Option<HashSet<String>>,
     pub max_size: Option<usize>, // Bytes
+}
+
+impl FileValidator {
+    const FIELD_CONTENT_TYPES: &'static str = "content-types";
+    const FIELD_MAX_SIZE: &'static str = "max-size";
+}
+
+impl TryFrom<Config>  for FileValidator {
+    type Error = ConfigError;
+
+    fn try_from(config: Config) -> Result<Self, Self::Error> {
+        let content_types = config.get_path_list(Self::FIELD_CONTENT_TYPES)?;
+        let max_size = config.get_path_single(Self::FIELD_MAX_SIZE)?;
+
+        Ok(Self { content_types, max_size })
+    }
 }
 
 impl Validator for FileValidator {

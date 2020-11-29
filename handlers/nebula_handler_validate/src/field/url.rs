@@ -1,9 +1,10 @@
 use super::{join_iter, Validator, ValidationError};
+use nebula_rpc::config::{Config, ConfigError, ConfigExt};
 use lazy_static::lazy_static;
 use serde::Deserialize;
 use serde::de::{self, Deserializer, Visitor};
 use std::collections::BTreeSet;
-use std::convert::From;
+use std::convert::{From, TryFrom};
 use std::error::Error;
 use std::fmt;
 use url::{Url, ParseError};
@@ -43,18 +44,17 @@ mod tests {
     }
 
     fn get_validator() -> UrlValidator {
-        let toml = r#"
-            host-whitelist = [ "whitelisted.com" ]
-            host-blacklist = [ "blacklisted.com" ]
-            schemes = [ "https" ]
-        "#;
-
-        serde_
+        UrlValidator {
+            host_whitelist: Some(vec!["whitelisted.com".to_owned()].into_iter().collect()),
+            host_blacklist: Some(vec!["blacklisted.com".to_owned()].into_iter().collect()),
+            schemes: Some(vec!["https".to_owned()].into_iter().collect()),
+            schemes_requiring_hosts: SCHEMES_REQ_HOSTS_DEFAULT.clone(),
+        }
     }
 
     #[test]
     fn blacklisted_domains_are_blacklisted() {
-        let validator = get_validator();
+        let mut validator = get_validator();
         validator.host_whitelist = None;
 
         for url in BLACKLISTED_URLS.iter() {
@@ -75,7 +75,7 @@ mod tests {
 
     #[test]
     fn blacklisted_domain_does_not_block_subdomain() {
-        let validator = get_validator();
+        let mut validator = get_validator();
         validator.host_whitelist = None;
 
         for url in BLACKLISTED_SUBDOMAIN_URLS.iter() {
@@ -138,10 +138,10 @@ mod tests {
         validator.host_blacklist = None;
         validator.host_whitelist = None;
 
-        assert!(validator.schemes.expect("schemes must exist for this test").contains("https"));
+        assert!(validator.schemes.as_ref().expect("schemes must exist for this test").contains("https"));
         // Default validator allows https and all of the following URLs should use https
-        for list in vec![ WHITELISTED_URLS, WHITELISTED_SUBDOMAIN_URLS, BLACKLISTED_URLS, BLACKLISTED_SUBDOMAIN_URLS ].iter() {
-            for url in list.iter() {
+        for list in vec![ WHITELISTED_URLS.iter(), WHITELISTED_SUBDOMAIN_URLS.iter(), BLACKLISTED_URLS.iter(), BLACKLISTED_SUBDOMAIN_URLS.iter() ].into_iter() {
+            for url in list {
                 validator.validate_text(url).expect("HTTPS URLs should validate");
             }
         }
@@ -153,13 +153,13 @@ mod tests {
         validator.host_blacklist = None;
         validator.host_whitelist = None;
 
-        assert!(!validator.schemes.expect("schemes must exist for this test").contains("http"));
+        assert!(!validator.schemes.as_ref().expect("schemes must exist for this test").contains("http"));
 
         // Default validator allows https and all of the following URLs should use https
-        for list in vec![ WHITELISTED_URLS, WHITELISTED_SUBDOMAIN_URLS, BLACKLISTED_URLS, BLACKLISTED_SUBDOMAIN_URLS ].iter() {
-            for url in list.iter() {
+        for list in vec![ WHITELISTED_URLS.iter(), WHITELISTED_SUBDOMAIN_URLS.iter(), BLACKLISTED_URLS.iter(), BLACKLISTED_SUBDOMAIN_URLS.iter() ].into_iter() {
+            for url in list {
                 let mut newurl = "http".to_string();
-                newurl.push_str(url.strip_prefix("https"));
+                newurl.push_str(url.strip_prefix("https").unwrap_or(url));
                 let err = validator.validate_text(url).expect_err("HTTP URLs should not validate");
 
                 match err {
@@ -259,64 +259,38 @@ pub(crate) struct UrlValidator {
     pub schemes: Option<BTreeSet<String>>,
 }
 
-#[derive(Deserialize)]
-#[serde(field_identifier, rename = "lowercase")]
-enum Field { HostBlacklist, HostWhitelist, SchemesRequiringHosts, Schemes }
-
-struct UrlVisitor;
-
-impl<'de> Visitor<'de> for UrlVisitor {
-    type Value = UrlValidator;
-
-    fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str("URL validator")
-    }
-
-    fn visit_map<V>(self, mut map: V) -> Result<Self::Value, V::Error> where V: de::MapAccess<'de> {
-        let mut host_blacklist = None;
-        let mut host_whitelist = None;
-        let mut schemes = None;
-        let mut schemes_requiring_hosts = None;
-
-        while let Some(key) = map.next_key()? {
-            match key {
-                Field::HostBlacklist => {
-                    super::set_option_field("host_blacklist", &mut host_blacklist, &mut map)?;
-                },
-                Field::HostWhitelist => {
-                    super::set_option_field("host_whitelist", &mut host_whitelist, &mut map)?;
-                },
-                Field::Schemes => {
-                    super::set_option_field("schemes", &mut schemes, &mut map)?;
-                },
-                Field::SchemesRequiringHosts => {
-                    super::set_option_field("schemes_required_hosts", &mut schemes_requiring_hosts, &mut map)?;
-                }
-            }
-        }
-
-        let mut schemes_requiring_hosts = schemes_requiring_hosts
-            .map(|tree| SCHEMES_REQ_HOSTS_DEFAULT.union(&tree).cloned().collect())
-            .unwrap_or_else(|| SCHEMES_REQ_HOSTS_DEFAULT.clone());
-
-        Ok(Self::Value { host_blacklist, host_whitelist, schemes, schemes_requiring_hosts })
-    }
+impl UrlValidator {
+    const FIELD_HOST_BLACKLIST: &'static str = "host-blacklist";
+    const FIELD_HOST_WHITELIST: &'static str = "host-whitelist";
+    const FIELD_SCHEMES_REQUIRING_HOSTS: &'static str = "schemes-requiring-hosts";
+    const FIELD_SCHEMES: &'static str = "schemes";
 }
 
-impl<'de> Deserialize<'de> for UrlValidator {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: Deserializer<'de> {
-        deserializer.deserialize_map(UrlVisitor)
+impl TryFrom<Config> for UrlValidator {
+    type Error = ConfigError;
+    fn try_from(config: Config) -> Result<Self, ConfigError> {
+        let host_blacklist = config.get_path_list(Self::FIELD_HOST_BLACKLIST)?;
+        let host_whitelist = config.get_path_list(Self::FIELD_HOST_WHITELIST)?;
+        let schemes = config.get_path_list(Self::FIELD_SCHEMES)?;
+        let schemes_requiring_hosts = config.get_path_list(Self::FIELD_SCHEMES_REQUIRING_HOSTS)?
+            .unwrap_or_else(|| {
+                match &schemes {
+                    None => SCHEMES_REQ_HOSTS_DEFAULT.clone(),
+                    Some(set) => SCHEMES_REQ_HOSTS_DEFAULT.intersection(set).cloned().collect(),
+                }
+            });
+        Ok(Self { host_blacklist, host_whitelist, schemes, schemes_requiring_hosts })
     }
 }
 
 impl Validator for UrlValidator {
     type Error = UrlError;
-    fn validate_text(&self, text: &str) -> Result<(), Self::Error> {
+    fn validate_text(&self, text: &str) -> Result<(), UrlError> {
         let url = Url::parse(text)?;
 
         if let Some(schemes) = &self.schemes {
             if !schemes.contains(url.scheme()) {
-                return Err(Self::Error::SchemeNotWhitelisted(join_iter(&mut schemes.iter(), ", ")));
+                return Err(UrlError::SchemeNotWhitelisted(join_iter(&mut schemes.iter(), ", ")));
             }
         }
 
@@ -324,16 +298,16 @@ impl Validator for UrlValidator {
         if let Some(host) = url.host_str() {
             if let Some(hosts) = &self.host_whitelist {
                 if !hosts.contains(host) {
-                    return Err(Self::Error::HostNotWhitelisted(join_iter(&mut hosts.iter(), ", ")));
+                    return Err(UrlError::HostNotWhitelisted(join_iter(&mut hosts.iter(), ", ")));
                 }
             } else if let Some(hosts) = &self.host_blacklist {
                 if hosts.contains(host) {
-                    return Err(Self::Error::HostBlacklisted(join_iter(&mut hosts.iter(), ", ")));
+                    return Err(UrlError::HostBlacklisted(join_iter(&mut hosts.iter(), ", ")));
                 }
             }
         } else {
             if self.schemes_requiring_hosts.contains(url.scheme()) {
-                return Err(Self::Error::HostMissing(url.scheme().to_string()));
+                return Err(UrlError::HostMissing(url.scheme().to_string()));
             }
         }
 
