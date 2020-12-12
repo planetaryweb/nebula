@@ -10,6 +10,7 @@ use url::{Url, ParseError, SyntaxViolation};
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nebula_rpc::config::Value;
 
     lazy_static! {
         static ref BLACKLISTED_URLS: Vec<&'static str> = vec! [
@@ -42,21 +43,15 @@ mod tests {
     }
 
     fn get_validator() -> UrlValidator {
-        UrlValidator {
-            host_whitelist: Some(vec!["whitelisted.com".to_owned()].into_iter().collect()),
-            host_blacklist: Some(vec!["blacklisted.com".to_owned()].into_iter().collect()),
-            schemes: Some(vec!["https".to_owned()].into_iter().collect()),
-            schemes_requiring_hosts: SCHEMES_REQ_HOSTS_DEFAULT.clone(),
-        }
-    }
+        let config = {
+            let mut config = Config::new();
+            config.insert(UrlValidator::FIELD_HOST_WHITELIST.to_owned(), Value::LeafList(vec!["whitelisted.com".to_owned()]));
+            config.insert(UrlValidator::FIELD_HOST_BLACKLIST.to_owned(), Value::LeafList(vec!["blacklisted.com".to_owned()]));
+            config.insert(UrlValidator::FIELD_SCHEMES.to_owned(), Value::LeafList(vec!["https".to_owned()]));
+            config
+        };
 
-    fn get_subdomain_validator() -> UrlValidator {
-        UrlValidator {
-            host_whitelist: Some(vec!["*.whitelisted.com".to_owned()].into_iter().collect()),
-            host_blacklist: Some(vec!["*.blacklisted.com".to_owned()].into_iter().collect()),
-            schemes: Some(vec!["https".to_owned()].into_iter().collect()),
-            schemes_requiring_hosts: SCHEMES_REQ_HOSTS_DEFAULT.clone(),
-        }
+        UrlValidator::try_from(config).expect("test validator should successfully be created")
     }
 
     #[test]
@@ -72,33 +67,6 @@ mod tests {
                 UrlError::HostBlacklisted(_) => {},
                 err => panic!("expected UrlError::HostBlacklisted, got {:?}", err),
             }
-        }
-    }
-
-    #[test]
-    fn blacklisted_wildcard_subdomains_are_blacklisted() {
-        let mut validator = get_subdomain_validator();
-        validator.host_whitelist = None;
-
-        for url in BLACKLISTED_SUBDOMAIN_URLS.iter() {
-            let err = validator.validate_text(url)
-                .expect_err(format!("blacklisted subdomain url ({}) should not validate", url).as_str());
-
-            match err {
-                UrlError::HostBlacklisted(_) => {},
-                err => panic!("expected UrlError::HostBlacklisted, got {:?}", err),
-            }
-        }
-    }
-
-    #[test]
-    fn domains_without_subdomain_are_not_wildcard_blacklisted() {
-        let mut validator = get_subdomain_validator();
-        validator.host_whitelist = None;
-
-        for url in BLACKLISTED_URLS.iter() {
-            validator.validate_text(url)
-                .expect(format!("blacklisted domain url without subdomain ({}) should validate", url).as_str());
         }
     }
 
@@ -152,33 +120,6 @@ mod tests {
             match err {
                 UrlError::HostNotWhitelisted(_) => {},
                 err => panic!("expected UrlError::HostNotWhitelisted, got {:?}", err),
-            }
-        }
-    }
-
-    #[test]
-    fn whitelisted_wildcard_subdomains_are_whitelisted() {
-        let mut validator = get_subdomain_validator();
-        validator.host_blacklist = None;
-
-        for url in WHITELISTED_SUBDOMAIN_URLS.iter() {
-            validator.validate_text(url)
-                .expect(format!("whitelisted subdomain url ({}) should validate", url).as_str());
-        }
-    }
-
-    #[test]
-    fn domains_without_subdomain_are_not_wildcard_whitelisted() {
-        let mut validator = get_subdomain_validator();
-        validator.host_blacklist = None;
-
-        for url in WHITELISTED_URLS.iter() {
-            let err = validator.validate_text(url)
-                .expect_err(format!("whitelisted domain url without subdomain ({}) should not validate", url).as_str());
-
-            match err {
-                UrlError::HostNotWhitelisted(_) => {},
-                err => panic!("expected UrlError::HostNotWhitelisted, got {:?}", err)
             }
         }
     }
