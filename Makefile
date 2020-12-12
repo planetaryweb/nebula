@@ -51,11 +51,11 @@ test:
 
 .PHONY: test-net
 test-net:
-	${CARGO_COMMAND} test --features test-ports
+	${CARGO_COMMAND} test --features test-ports ${CARGO_TEST_FLAGS}
 
 .PHONY: test-all
 test-all:
-	${CARGO_COMMAND} test --all-features
+	${CARGO_COMMAND} test --all-features ${CARGO_TEST_FLAGS}
 
 .PHONY: test-forms
 test-forms: ${RUSTUP_TARGET}
