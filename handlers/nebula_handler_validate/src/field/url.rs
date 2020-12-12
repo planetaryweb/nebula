@@ -1,13 +1,11 @@
 use super::{join_iter, Validator, ValidationError};
 use nebula_rpc::config::{Config, ConfigError, ConfigExt};
 use lazy_static::lazy_static;
-use serde::Deserialize;
-use serde::de::{self, Deserializer, Visitor};
 use std::collections::BTreeSet;
 use std::convert::{From, TryFrom};
 use std::error::Error;
 use std::fmt;
-use url::{Url, ParseError};
+use url::{Url, ParseError, SyntaxViolation};
 
 #[cfg(test)]
 mod tests {
@@ -52,6 +50,15 @@ mod tests {
         }
     }
 
+    fn get_subdomain_validator() -> UrlValidator {
+        UrlValidator {
+            host_whitelist: Some(vec!["*.whitelisted.com".to_owned()].into_iter().collect()),
+            host_blacklist: Some(vec!["*.blacklisted.com".to_owned()].into_iter().collect()),
+            schemes: Some(vec!["https".to_owned()].into_iter().collect()),
+            schemes_requiring_hosts: SCHEMES_REQ_HOSTS_DEFAULT.clone(),
+        }
+    }
+
     #[test]
     fn blacklisted_domains_are_blacklisted() {
         let mut validator = get_validator();
@@ -70,7 +77,29 @@ mod tests {
 
     #[test]
     fn blacklisted_wildcard_subdomains_are_blacklisted() {
-        todo!();
+        let mut validator = get_subdomain_validator();
+        validator.host_whitelist = None;
+
+        for url in BLACKLISTED_SUBDOMAIN_URLS.iter() {
+            let err = validator.validate_text(url)
+                .expect_err(format!("blacklisted subdomain url ({}) should not validate", url).as_str());
+
+            match err {
+                UrlError::HostBlacklisted(_) => {},
+                err => panic!("expected UrlError::HostBlacklisted, got {:?}", err),
+            }
+        }
+    }
+
+    #[test]
+    fn domains_without_subdomain_are_not_wildcard_blacklisted() {
+        let mut validator = get_subdomain_validator();
+        validator.host_whitelist = None;
+
+        for url in BLACKLISTED_URLS.iter() {
+            validator.validate_text(url)
+                .expect(format!("blacklisted domain url without subdomain ({}) should validate", url).as_str());
+        }
     }
 
     #[test]
@@ -106,7 +135,7 @@ mod tests {
 
             match err {
                 UrlError::HostNotWhitelisted(_) => {},
-                err => panic!("expected UrlError::HostBlacklisted, got {:?}", err),
+                err => panic!("expected UrlError::HostNotWhitelisted, got {:?}", err),
             }
         }
     }
@@ -122,14 +151,36 @@ mod tests {
 
             match err {
                 UrlError::HostNotWhitelisted(_) => {},
-                err => panic!("expected UrlError::HostBlacklisted, got {:?}", err),
+                err => panic!("expected UrlError::HostNotWhitelisted, got {:?}", err),
             }
         }
     }
 
     #[test]
-    fn whitelisted_wildcard_domains_are_allowed() {
-        todo!();
+    fn whitelisted_wildcard_subdomains_are_whitelisted() {
+        let mut validator = get_subdomain_validator();
+        validator.host_blacklist = None;
+
+        for url in WHITELISTED_SUBDOMAIN_URLS.iter() {
+            validator.validate_text(url)
+                .expect(format!("whitelisted subdomain url ({}) should validate", url).as_str());
+        }
+    }
+
+    #[test]
+    fn domains_without_subdomain_are_not_wildcard_whitelisted() {
+        let mut validator = get_subdomain_validator();
+        validator.host_blacklist = None;
+
+        for url in WHITELISTED_URLS.iter() {
+            let err = validator.validate_text(url)
+                .expect_err(format!("whitelisted domain url without subdomain ({}) should not validate", url).as_str());
+
+            match err {
+                UrlError::HostNotWhitelisted(_) => {},
+                err => panic!("expected UrlError::HostNotWhitelisted, got {:?}", err)
+            }
+        }
     }
 
     #[test]
@@ -153,14 +204,15 @@ mod tests {
         validator.host_blacklist = None;
         validator.host_whitelist = None;
 
-        assert!(!validator.schemes.as_ref().expect("schemes must exist for this test").contains("http"));
+        assert!(!validator.schemes.as_ref().expect("schemes must exist for this test").contains("http"),
+            "schemes must not contain 'http' for this test");
 
         // Default validator allows https and all of the following URLs should use https
         for list in vec![ WHITELISTED_URLS.iter(), WHITELISTED_SUBDOMAIN_URLS.iter(), BLACKLISTED_URLS.iter(), BLACKLISTED_SUBDOMAIN_URLS.iter() ].into_iter() {
             for url in list {
                 let mut newurl = "http".to_string();
-                newurl.push_str(url.strip_prefix("https").unwrap_or(url));
-                let err = validator.validate_text(url).expect_err("HTTP URLs should not validate");
+                newurl.push_str(url.strip_prefix("https").unwrap());
+                let err = validator.validate_text(&newurl).expect_err(format!("HTTP URLs ({}) should not validate", newurl).as_str());
 
                 match err {
                     UrlError::SchemeNotWhitelisted(_) => {},
@@ -172,14 +224,78 @@ mod tests {
 
     #[test]
     fn allowed_schemes_without_required_hosts_are_invalid() {
+        // This validator should only require https, no specific hostname matching
+        let validator = UrlValidator {
+            host_blacklist: None,
+            host_whitelist: None,
+            schemes_requiring_hosts: SCHEMES_REQ_HOSTS_DEFAULT.clone(),
+            schemes: Some(vec!["https"].into_iter().map(String::from).collect()),
+        };
 
+        let invalid_uris = vec!["https:///path/to/file", "https://?key1=val1&key2=val2"];
+
+        for uri in invalid_uris {
+            let err = validator.validate_text(uri).expect_err(&format!("https uris without hosts should not validate: {}", uri));
+
+            match err {
+                UrlError::HostMissing(_) => {},
+                // Some missing hosts produce a syntax violation instead
+                UrlError::SyntaxViolation(SyntaxViolation::ExpectedDoubleSlash) => {},
+                UrlError::Parse(err) => panic!("uri ({}) should not fail parsing: {}", uri, err),
+                err => panic!("expected UrlError::HostMissing, got {:?}", err),
+            }
+        }
     }
 
     #[test]
     fn common_schemes_requiring_hosts_automatically_require_them() {
+        let config = Config::new();
+
+        let validator = UrlValidator::try_from(config)
+            .expect("validator should generate from empty config");
+
         for scheme in SCHEMES_REQ_HOSTS_DEFAULT.iter() {
-            
+            for suffix in vec![":///path/to/resource", "://?key1=val1"] {
+                let mut uri = scheme.to_string();
+                uri.push_str(suffix);
+
+                {
+                    if let Ok(url) = Url::parse(&uri) {
+                        if let Some(host) = url.host_str() {
+                            println!("scheme: '{}'\thost: '{}'\turi: '{}'", url.scheme(), host, uri);
+                        }
+                    }
+                }
+
+                let err = validator.validate_text(&uri)
+                    .expect_err(&format!("URI scheme {} should require host and not validate: {}", scheme, uri));
+
+                match err {
+                    UrlError::HostMissing(_) => {},
+                    // Some missing hosts produce a syntax violation instead
+                    UrlError::SyntaxViolation(SyntaxViolation::ExpectedDoubleSlash) => {},
+                    UrlError::Parse(err) => panic!("unexpected parser error for uri ({}): {}", uri, err),
+                    err => panic!("expected UrlError::HostMissing, got {:?}", err),
+                }
+            }
         }
+    }
+}
+
+fn parse_syntax_violations_are_errors(uri: &str) -> Result<Url, UrlError> {
+    use std::cell::RefCell;
+    let violation = RefCell::new(None);
+    let url = Url::options()
+        .syntax_violation_callback(Some(&|v| { violation.replace(Some(v)); }))
+        .parse(uri)
+        .map_err(|err| match err {
+            ParseError::EmptyHost => UrlError::HostMissing(uri.to_string()),
+            err => UrlError::Parse(err),
+        })?;       
+
+    match violation.into_inner() {
+        Some(v) => Err(UrlError::SyntaxViolation(v)),
+        None => Ok(url),
     }
 }
 
@@ -188,8 +304,9 @@ pub(crate) enum UrlError {
     HostBlacklisted(String),
     HostMissing(String),
     HostNotWhitelisted(String),
-    Parse(ParseError),
     SchemeNotWhitelisted(String),
+    Parse(ParseError),
+    SyntaxViolation(SyntaxViolation),
     Validation(ValidationError),
 }
 
@@ -211,8 +328,9 @@ impl fmt::Display for UrlError {
             Self::HostBlacklisted(list) => write!(f, "URLs not allowed from the following: {}", list),
             Self::HostMissing(scheme) => write!(f, "The {} scheme requires a host/domain", scheme),
             Self::HostNotWhitelisted(list) => write!(f, "URLs must be from one of the following: {}", list),
-            Self::Parse(err) => write!(f, "Invalid URL: {}", err),
+            Self::Parse(err) => write!(f, "Failed to parse URL: {}", err),
             Self::SchemeNotWhitelisted(list) => write!(f, "URL scheme must be one of the following: {}", list),
+            Self::SyntaxViolation(v) => write!(f, "URL syntax in invalid: {}", v),
             Self::Validation(err) => write!(f, "{}", err),
         }
     }
@@ -224,12 +342,7 @@ lazy_static! {
     static ref SCHEMES_REQ_HOSTS_DEFAULT: BTreeSet<String> = {
         let mut schemes_requiring_hosts = BTreeSet::new();
         schemes_requiring_hosts.insert("feed".to_string());
-        schemes_requiring_hosts.insert("file".to_string());
-        schemes_requiring_hosts.insert("ftp".to_string());
         schemes_requiring_hosts.insert("git".to_string());
-        schemes_requiring_hosts.insert("gopher".to_string());
-        schemes_requiring_hosts.insert("http".to_string());
-        schemes_requiring_hosts.insert("https".to_string());
         schemes_requiring_hosts.insert("imap".to_string());
         schemes_requiring_hosts.insert("irc".to_string());
         schemes_requiring_hosts.insert("irc6".to_string());
@@ -248,6 +361,25 @@ lazy_static! {
         schemes_requiring_hosts.insert("turn".to_string());
         schemes_requiring_hosts.insert("turns".to_string());
         schemes_requiring_hosts.insert("xmpp".to_string());
+
+        
+        /*
+         * The following commented-out schemes are designated "special" by the whatwg standard and
+         * appear to be host-validated by `Url::Parse`.
+         *
+         * (file:// allows omitting `localhost`)
+         * schemes_requiring_hosts.insert("file".to_string());
+         */
+         schemes_requiring_hosts.insert("ftp".to_string());
+         schemes_requiring_hosts.insert("http".to_string());
+         schemes_requiring_hosts.insert("https".to_string());
+         schemes_requiring_hosts.insert("ws".to_string());
+         schemes_requiring_hosts.insert("wss".to_string());
+         /*
+         * The following appear to also be host-validated by `Url::Parse`.
+         */ 
+         schemes_requiring_hosts.insert("gopher".to_string());
+         /**/
         schemes_requiring_hosts
     };
 }
@@ -286,7 +418,8 @@ impl TryFrom<Config> for UrlValidator {
 impl Validator for UrlValidator {
     type Error = UrlError;
     fn validate_text(&self, text: &str) -> Result<(), UrlError> {
-        let url = Url::parse(text)?;
+        let url = parse_syntax_violations_are_errors(text)?;
+
 
         if let Some(schemes) = &self.schemes {
             if !schemes.contains(url.scheme()) {
