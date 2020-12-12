@@ -13,7 +13,8 @@ use std::str::FromStr;
 mod tests {
     use super::*;
     use ordered_float::NotNan;
-   
+
+    #[test]
     fn number_validator_all_types_compile() {
         let _ = NumberValidator::<i8> { min: None, max: None, valid_list: None };
         let _ = NumberValidator::<i16> { min: None, max: None, valid_list: None };
@@ -28,7 +29,7 @@ mod tests {
     }
 
     // BEGIN NUMBER (INT) VALIDATION TESTS
-    
+
     const INT_MIN: i32 = -5;
     const INT_MAX: i32 = 25;
 
@@ -105,7 +106,7 @@ mod tests {
 
     #[test]
     fn int_number_within_range_is_valid() {
-        let mut validator = get_int_validator();
+        let validator = get_int_validator();
         validator.validate_text(&(INT_MAX + INT_MIN).to_string())
             .expect("number between max and min should validate");
     }
@@ -233,7 +234,7 @@ impl<T> Validator for NumberValidator<T> where T: NumberType, <T as FromStr>::Er
                 }
             }
         }
-        
+
         Ok(())
     }
 }

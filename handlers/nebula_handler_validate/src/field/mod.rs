@@ -9,7 +9,6 @@ pub mod url;
 use nebula_form::{Field, FormFile as File};
 use nebula_rpc::config::{Config, ConfigError};
 use ordered_float::NotNan;
-use serde::de::{self, MapAccess};
 use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt;
@@ -78,15 +77,15 @@ impl fmt::Display for ValidationError {
 
 impl Error for ValidationError {}
 
-pub trait Validator: TryFrom<nebula_rpc::Config, Error=ConfigError> {
+pub trait Validator: TryFrom<Config, Error=ConfigError> {
     type Error: ::std::error::Error + std::convert::From<ValidationError>;
     /// Validate text from a textual form field.
-    fn validate_text(&self, text: &str) -> Result<(), <Self as Validator>::Error> {
+    fn validate_text(&self, _text: &str) -> Result<(), <Self as Validator>::Error> {
         Err(<Self as Validator>::Error::from(ValidationError::NotImplementedText))
     }
 
     /// Validate a file submitted from a form.
-    fn validate_file(&self, file: &File) -> Result<(), <Self as Validator>::Error> {
+    fn validate_file(&self, _file: &File) -> Result<(), <Self as Validator>::Error> {
         Err(<Self as Validator>::Error::from(ValidationError::NotImplementedFile))
     }
 

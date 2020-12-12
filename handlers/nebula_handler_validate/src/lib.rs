@@ -6,5 +6,4 @@ mod tests {
     }
 }
 
-mod captcha;
 mod field;

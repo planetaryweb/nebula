@@ -1,9 +1,6 @@
 use super::{Validator, ValidationError};
 use nebula_rpc::config::{Config, ConfigError, ConfigExt};
 use regex::Regex;
-use serde::{Serialize, Deserialize};
-use serde::de::{self, Deserializer, Visitor};
-use serde::ser::Serializer;
 use std::convert::{From, TryFrom};
 use std::error::Error;
 use std::fmt;
@@ -11,7 +8,6 @@ use std::fmt;
 #[cfg(test)]
 mod tests {
 	use super::*;
-    use serde_test::{assert_tokens, Token};
 
     #[test]
     fn string_validator_enforces_minimum_length() {
@@ -79,28 +75,6 @@ mod tests {
             StringError::Invalid => {},
             err => panic!("expected StringError::Invalid, got {:?}", err),
         }
-    }
-}
-
-struct RegexVisitor;
-
-impl<'de> Visitor<'de> for RegexVisitor {
-    type Value = Option<Regex>;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        write!(formatter, "a valid regular expression")
-    }
-
-    fn visit_str<E>(self, s: &str) -> Result<Self::Value, E> where E: de::Error {
-        Some(Regex::new(s).map_err(|e| de::Error::custom(e.to_string()))).transpose()
-    }
-
-    fn visit_some<D>(self, deserializer: D) -> Result<Self::Value, D::Error> where D: Deserializer<'de> {
-        deserializer.deserialize_string(Self)
-    }
-
-    fn visit_none<E>(self) -> Result<Self::Value, E> where E: de::Error {
-        Ok(None)
     }
 }
 

@@ -155,7 +155,7 @@ mod tests {
 
     #[test]
     fn email_whitelist_takes_precedence() {
-        let mut validator = get_email_validator();
+        let validator = get_email_validator();
         validator.validate_text(EMAIL_IN_BOTH_LISTS)
             .expect("white-and-blacklisted email should validate");
         validator.validate_text(EMAIL_IN_WHITELIST)
@@ -170,7 +170,7 @@ mod tests {
 
     #[test]
     fn whitelisted_domain_invalid_username_does_not_validate() {
-        let mut validator = get_email_validator();
+        let validator = get_email_validator();
         let err = validator.validate_text(EMAIL_VALID_DOMAIN_INVALID_USER)
             .expect_err("invalid username with valid domain should not validate");
         match err {
