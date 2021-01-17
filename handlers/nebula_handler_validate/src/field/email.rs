@@ -26,10 +26,10 @@ mod tests {
         ];
 
         static ref ASCII_QUOTED_EMAILS: Vec<&'static str> = vec![
-            "\"Abc@def\"@example.com",
-            "\"John\\\"Smith\"@example.com",
-            "\"Fred Bloggs\"@example.com",
-            "\"Joe.\\\\Blow\"@example.com",
+            r#""Abc@def"@example.com"#,
+            r#""John\"Smith"@example.com"#,
+            r#""Fred Bloggs"@example.com"#,
+            r#""Joe.\\Blow"@example.com"#,
         ];
 
         static ref UTF8_EMAILS: Vec<&'static str> = vec![
@@ -119,10 +119,10 @@ mod tests {
     fn email_not_in_whitelist_does_not_validate() {
         let mut validator = get_email_validator();
         validator.domain_blacklist = None;
-        let err = validator.validate_text(EMAIL_NOT_IN_LIST)
+        let err = validator.do_validate(EMAIL_NOT_IN_LIST)
             .expect_err("non-whitelisted email should not validate");
         match err {
-            EmailError::DomainNotWhitelisted(_) => {},
+            EmailError::DomainNotWhitelisted{..} => {},
             err => panic!("invalid error, expected DomainNotWhitelisted: {}", err),
         }
     }
@@ -139,16 +139,16 @@ mod tests {
     fn email_in_blacklist_does_not_validate() {
         let mut validator = get_email_validator();
         validator.domain_whitelist = None;
-        let err = validator.validate_text(EMAIL_IN_BLACKLIST)
+        let err = validator.do_validate(EMAIL_IN_BLACKLIST)
             .expect_err("blacklisted email should not validate");
         match err {
-            EmailError::DomainBlacklisted(_) => {},
+            EmailError::DomainBlacklisted{..} => {},
             err => panic!("invalid error, expected DomainBlacklisted: {}", err),
         }
-        let err = validator.validate_text(EMAIL_IN_BOTH_LISTS)
+        let err = validator.do_validate(EMAIL_IN_BOTH_LISTS)
             .expect_err("blacklisted email should not validate");
         match err {
-            EmailError::DomainBlacklisted(_) => {},
+            EmailError::DomainBlacklisted{..} => {},
             err => panic!("invalid error, expected DomainBlacklisted: {}", err),
         }
     }
@@ -160,10 +160,10 @@ mod tests {
             .expect("white-and-blacklisted email should validate");
         validator.validate_text(EMAIL_IN_WHITELIST)
             .expect("whitelisted email should validate");
-        let err = validator.validate_text(EMAIL_NOT_IN_LIST)
+        let err = validator.do_validate(EMAIL_NOT_IN_LIST)
             .expect_err("non-whitelisted email should not validate");
         match err {
-            EmailError::DomainNotWhitelisted(_) => {},
+            EmailError::DomainNotWhitelisted{..} => {},
             err => panic!("invalid error, expected DomainNotWhitelisted: {}", err),
         }
     }
@@ -171,10 +171,10 @@ mod tests {
     #[test]
     fn whitelisted_domain_invalid_username_does_not_validate() {
         let validator = get_email_validator();
-        let err = validator.validate_text(EMAIL_VALID_DOMAIN_INVALID_USER)
+        let err = validator.do_validate(EMAIL_VALID_DOMAIN_INVALID_USER)
             .expect_err("invalid username with valid domain should not validate");
         match err {
-            EmailError::NotValidEmail(_, _) => {},
+            EmailError::NotValidEmail{..} => {},
             err => panic!("invalid error, expected NotValidEmail: {}", err),
         }
     }
@@ -230,32 +230,31 @@ impl fmt::Display for EmailType {
 
 #[derive(Debug)]
 pub enum EmailError {
-    DomainBlacklisted(String),
-    DomainNotWhitelisted(String),
-    NotValidEmail(EmailType, String),
-    Validation(ValidationError),
+    DomainBlacklisted{ domain: String },
+    DomainNotWhitelisted{ domain: String },
+    NotValidEmail{regex: EmailType, email: String},
 }
 
-impl From<ValidationError> for EmailError {
-    fn from(err: ValidationError) -> Self {
-        Self::Validation(err)
+impl From<EmailError> for ValidationError {
+    fn from(err: EmailError) -> Self {
+        ValidationError::InvalidInput(err.to_string())
     }
 }
 
 impl fmt::Display for EmailError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::DomainBlacklisted(domain) => write!(f, "{} has been blacklisted", domain),
-            Self::DomainNotWhitelisted(domain) => write!(f, "{} is not whitelisted", domain),
-            Self::NotValidEmail(typ, email) => write!(f, "{} does not match {}", email, typ),
-            Self::Validation(err) => write!(f, "{}", err),
+            Self::DomainBlacklisted{domain} | EmailError::DomainNotWhitelisted{domain} =>
+                write!(f, "domain {} is not allowed", domain),
+            Self::NotValidEmail{regex, email} =>
+                write!(f, "{} is not a valid email according to {}", email, regex),
         }
     }
 }
 
 impl Error for EmailError {}
 
-pub(crate) struct EmailValidator {
+pub struct EmailValidator {
     pub domain_whitelist: Option<HashSet<String>>,
     pub domain_blacklist: Option<HashSet<String>>,
     pub regex_type: EmailType,
@@ -265,6 +264,45 @@ impl EmailValidator {
     const FIELD_DOMAIN_BLACKLIST: &'static str = "domain-blacklist";
     const FIELD_DOMAIN_WHITELIST: &'static str = "domain-whitelist";
     const FIELD_REGEX_TYPE: &'static str = "type";
+
+    fn do_validate(&self, text: &str) -> Result<(), EmailError> {
+        let regex = match self.regex_type {
+            EmailType::Html5 => &*regexes::EMAIL_HTML5,
+            EmailType::Rfc5322 => &*regexes::EMAIL_RFC_5322,
+        };
+
+        if !regex.is_match(text) {
+            return Err(EmailError::NotValidEmail{
+                regex: self.regex_type,
+                email: text.to_string(),
+            });
+        }
+
+        // The regular expressions enforce at least one @ regardless of which one is used,
+        // so there should always be at least one result.
+        let domain = text.rsplit('@').next().unwrap();
+        match &self.domain_whitelist {
+            Some(wset) => {
+                if !wset.iter().any(|s| s.eq_ignore_ascii_case(domain)) {
+                    return Err(EmailError::DomainNotWhitelisted{
+                        domain: domain.to_string(),
+                    });
+                }
+            },
+            None => match &self.domain_blacklist {
+                Some(bset) => {
+                    if bset.iter().any(|s| s.eq_ignore_ascii_case(domain)) {
+                        return Err(EmailError::DomainBlacklisted{
+                            domain: domain.to_string(),
+                        });
+                    }
+                },
+                None => {}
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl TryFrom<Config> for EmailValidator {
@@ -286,43 +324,11 @@ impl TryFrom<Config> for EmailValidator {
 }
 
 impl Validator for EmailValidator {
-    type Error = EmailError;
-    fn validate_text(&self, text: &str) -> Result<(), EmailError> {
-        let regex = match self.regex_type {
-            EmailType::Html5 => &*regexes::EMAIL_HTML5,
-            EmailType::Rfc5322 => &*regexes::EMAIL_RFC_5322,
-        };
+    fn try_from_config(config: Config) -> Result<Self, ConfigError> where Self: Sized {
+        Self::try_from(config)
+    }
 
-        if !regex.is_match(text) {
-            return Err(EmailError::NotValidEmail(
-                self.regex_type,
-                text.to_string(),
-            ));
-        }
-
-        // The regular expressions enforce at least one @ regardless of which one is used,
-        // so there should always be at least one result.
-        let domain = text.rsplit('@').next().unwrap();
-        match &self.domain_whitelist {
-            Some(wset) => {
-                if !wset.iter().any(|s| s.eq_ignore_ascii_case(domain)) {
-                    return Err(EmailError::DomainNotWhitelisted(
-                        domain.to_string(),
-                    ));
-                }
-            },
-            None => match &self.domain_blacklist {
-                Some(bset) => {
-                    if bset.iter().any(|s| s.eq_ignore_ascii_case(domain)) {
-                        return Err(EmailError::DomainBlacklisted(
-                            domain.to_string(),
-                        ));
-                    }
-                },
-                None => {}
-            }
-        }
-
-        Ok(())
+    fn validate_text(&self, text: &str) -> crate::Result {
+        self.do_validate(text).map_err(Into::into)
     }
 }

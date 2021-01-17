@@ -99,7 +99,7 @@ mod tests {
     fn phone_number_with_alpha_is_invalid() {
         let validator = PhoneValidator{};
         for number in INVALID_PHONE_NUMBERS_HAS_ALPHA.iter() {
-            let err = validator.validate_text(number)
+            let err = validator.do_validate(number)
                 .expect_err("phone number with alpha characters should not validate");
             match err {
                 PhoneError::Invalid(_) => {},
@@ -112,7 +112,7 @@ mod tests {
     fn phone_number_without_prefix_is_invalid() {
         let validator = PhoneValidator{};
         for number in INVALID_PHONE_NUMBERS_NO_PREFIX.iter() {
-            let err = validator.validate_text(number)
+            let err = validator.do_validate(number)
                 .expect_err("phone number without international prefix should not validate");
             match err {
                 PhoneError::NoPrefix(_) => {},
@@ -125,7 +125,7 @@ mod tests {
     fn phone_number_with_spaces_or_punc_is_invalid() {
         let validator = PhoneValidator{};
         for number in INVALID_PHONE_NUMBERS_HAS_PUNC.iter() {
-            let err = validator.validate_text(number)
+            let err = validator.do_validate(number)
                 .expect_err("phone number with spaces or punctuation should not validate");
             match err {
                 PhoneError::Invalid(_) => {},
@@ -149,12 +149,11 @@ lazy_static! {
 pub(crate) enum PhoneError {
     Invalid(String),
     NoPrefix(String),
-    Validation(ValidationError),
 }
 
-impl From<ValidationError> for PhoneError {
-    fn from(err: ValidationError) -> Self {
-        Self::Validation(err)
+impl From<PhoneError> for ValidationError {
+    fn from(err: PhoneError) -> Self {
+        Self::InvalidInput(err.to_string())
     }
 }
 
@@ -163,25 +162,16 @@ impl fmt::Display for PhoneError {
         match self {
             Self::Invalid(num) => write!(f, "{} appears to be an invalid phone number", num),
             Self::NoPrefix(num) => write!(f, "{} does not appear to have the required international prefix", num),
-            Self::Validation(err) => write!(f, "{}", err),
         }
     }
 }
 
 impl Error for PhoneError {}
 
-pub(crate) struct PhoneValidator {}
+pub struct PhoneValidator {}
 
-impl TryFrom<Config> for PhoneValidator {
-    type Error = ConfigError;
-    fn try_from(_: Config) -> Result<Self, ConfigError> {
-        Ok(Self{})
-    }
-}
-
-impl Validator for PhoneValidator {
-    type Error = PhoneError;
-    fn validate_text(&self, text: &str) -> Result<(), PhoneError> {
+impl PhoneValidator {
+    fn do_validate(&self, text: &str) -> Result<(), PhoneError> {
         if !GENERIC_PHONE_REGEX.is_match(text) {
             if INTL_PREFIX_REGEX.is_match(text) {
                 return Err(PhoneError::Invalid(text.to_string()))
@@ -191,5 +181,22 @@ impl Validator for PhoneValidator {
         }
 
         Ok(())
+    }
+}
+
+impl TryFrom<Config> for PhoneValidator {
+    type Error = ConfigError;
+    fn try_from(_: Config) -> Result<Self, ConfigError> {
+        Ok(Self{})
+    }
+}
+
+impl Validator for PhoneValidator {
+    fn validate_text(&self, text: &str) -> crate::Result {
+        self.do_validate(text).map_err(Into::into)
+    }
+
+    fn try_from_config(config: Config) -> Result<Self, ConfigError> where Self: Sized {
+        Self::try_from(config)
     }
 }

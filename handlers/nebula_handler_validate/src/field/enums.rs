@@ -51,19 +51,19 @@ mod tests {
                 .expect(&format!("text should match (case sensitive): {}", item));
         }
         for item in MATCHES_CASE_INSENSITIVE.iter() {
-            let err = enum_validator.validate_text(item)
+            let err = enum_validator.do_validate(item)
                 .expect_err(&format!("text should not match (case insensitive): {}", item));
             match err {
-                EnumError::InvalidOption(_) => {}, // InvalidOption should be returned
-                err => panic!("Invalid error: {}", err),
+                EnumError::InvalidOption{..} => {}, // InvalidOption should be returned
+                //err => panic!("Invalid error: {}", err),
             }
         }
         for item in NO_MATCH_CASE_INSENSITIVE.iter() {
-            let err = enum_validator.validate_text(item)
+            let err = enum_validator.do_validate(item)
                 .expect_err(&format!("text should not match (regardless of case): {}", item));
             match err {
-                EnumError::InvalidOption(_) => {}, // InvalidOption should be returned
-                err => panic!("Invalid error: {}", err),
+                EnumError::InvalidOption{..} => {}, // InvalidOption should be returned
+                //err => panic!("Invalid error: {}", err),
             }
         }
     }
@@ -80,11 +80,11 @@ mod tests {
                 .expect(&format!("text should match (case insensitive): {}", item));
         }
         for item in NO_MATCH_CASE_INSENSITIVE.iter() {
-            let err = enum_validator.validate_text(item)
+            let err = enum_validator.do_validate(item)
                 .expect_err(&format!("text should not match (regardless of case): {}", item));
             match err {
-                EnumError::InvalidOption(_) => {}, // InvalidOption should be returned
-                err => panic!("Invalid error: {}", err),
+                EnumError::InvalidOption{..} => {}, // InvalidOption should be returned
+                //err => panic!("Invalid error: {}", err),
             }
         }
     }
@@ -92,30 +92,27 @@ mod tests {
 
 #[derive(Debug)]
 pub(crate) enum EnumError {
-    InvalidOption(String),
-    Validation(ValidationError),
+    InvalidOption{ allowed: String },
 }
 
-impl From<ValidationError> for EnumError {
-    fn from(err: ValidationError) -> Self {
-        Self::Validation(err)
+impl From<EnumError> for ValidationError {
+    fn from(err: EnumError) -> Self {
+        ValidationError::InvalidInput(err.to_string())
     }
 }
 
 impl fmt::Display for EnumError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::InvalidOption(allowed) =>
+            Self::InvalidOption{ allowed } =>
                 write!(f, r#"string not found among valid values: {}"#, allowed),
-            Self::Validation(err) =>
-                write!(f, "{}", err),
         }
     }
 }
 
 impl Error for EnumError {}
 
-pub(crate) struct EnumValidator {
+pub struct EnumValidator {
     pub case_sensitive: bool,
     pub valid_values: Vec<String>,
 }
@@ -123,6 +120,16 @@ pub(crate) struct EnumValidator {
 impl EnumValidator {
     const FIELD_CASE_SENSITIVE: &'static str = "case-sensitive";
     const FIELD_VALID_VALUES: &'static str = "valid-values";
+
+    fn do_validate(&self, text: &str) -> Result<(), EnumError> {
+        if self.case_sensitive && self.valid_values.iter().any(|s| s == text) {
+            Ok(())
+        } else if !self.case_sensitive && self.valid_values.iter().any(|s| s.eq_ignore_ascii_case(text)) {
+            Ok(())
+        } else {
+            Err(EnumError::InvalidOption{ allowed: format!("{:?}", self.valid_values)})
+        }
+    }
 }
 
 impl TryFrom<Config> for EnumValidator {
@@ -145,14 +152,11 @@ impl TryFrom<Config> for EnumValidator {
 }
 
 impl Validator for EnumValidator {
-    type Error = EnumError;
-    fn validate_text(&self, text: &str) -> Result<(), EnumError> {
-        if self.case_sensitive && self.valid_values.iter().any(|s| s == text) {
-            Ok(())
-        } else if !self.case_sensitive && self.valid_values.iter().any(|s| s.eq_ignore_ascii_case(text)) {
-            Ok(())
-        } else {
-            Err(EnumError::InvalidOption(format!("{:?}", self.valid_values)))
-        }
+    fn validate_text(&self, text: &str) -> crate::Result {
+        self.do_validate(text).map_err(Into::into)
+    }
+
+    fn try_from_config(config: Config) -> Result<Self, ConfigError> where Self: Sized {
+        Self::try_from(config)
     }
 }

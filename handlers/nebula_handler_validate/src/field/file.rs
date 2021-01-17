@@ -1,4 +1,6 @@
-use super::{join_iter, ValidationError, Validator};
+use crate::join_iter;
+
+use super::{ValidationError, Validator};
 use nebula_form::FormFile as File;
 use nebula_rpc::config::{Config, ConfigError, ConfigExt};
 use std::collections::HashSet;
@@ -55,7 +57,7 @@ mod tests {
         let mut validator = get_file_validator();
         let file = get_invalid_file_too_big();
         validator.content_types = None;
-        let err = validator.validate_file(&file)
+        let err = validator.do_validate(&file)
             .expect_err("file that is too big should not validate");
         match err {
             FileError::TooBig(_) => {},
@@ -68,7 +70,7 @@ mod tests {
         let mut validator = get_file_validator();
         let file = get_invalid_file_wrong_content_type();
         validator.max_size = None;
-        let err = validator.validate_file(&file)
+        let err = validator.do_validate(&file)
             .expect_err("file that is too big should not validate");
         match err {
             FileError::InvalidContentType(_) => {},
@@ -89,12 +91,11 @@ mod tests {
 pub(crate) enum FileError {
     InvalidContentType(String),
     TooBig(usize),
-    Validation(ValidationError),
 }
 
-impl From<ValidationError> for FileError {
-    fn from(err: ValidationError) -> Self {
-        Self::Validation(err)
+impl From<FileError> for ValidationError {
+    fn from(err: FileError) -> Self {
+        Self::InvalidInput(err.to_string())
     }
 }
 
@@ -103,14 +104,13 @@ impl fmt::Display for FileError {
         match self {
             Self::InvalidContentType(content_list) => write!(f, "content type is not among allowed types: {}", content_list),
             Self::TooBig(max_size) => write!(f, "file is larger than {} byte maximum", max_size),
-            Self::Validation(err) => write!(f, "{}", err),
         }
     }
 }
 
 impl Error for FileError {}
 
-pub(crate) struct FileValidator {
+pub struct FileValidator {
     pub content_types: Option<HashSet<String>>,
     pub max_size: Option<usize>, // Bytes
 }
@@ -118,22 +118,8 @@ pub(crate) struct FileValidator {
 impl FileValidator {
     const FIELD_CONTENT_TYPES: &'static str = "content-types";
     const FIELD_MAX_SIZE: &'static str = "max-size";
-}
 
-impl TryFrom<Config>  for FileValidator {
-    type Error = ConfigError;
-
-    fn try_from(config: Config) -> Result<Self, Self::Error> {
-        let content_types = config.get_path_list(Self::FIELD_CONTENT_TYPES)?;
-        let max_size = config.get_path_single(Self::FIELD_MAX_SIZE)?;
-
-        Ok(Self { content_types, max_size })
-    }
-}
-
-impl Validator for FileValidator {
-    type Error = FileError;
-    fn validate_file(&self, file: &File) -> Result<(), FileError> {
+    fn do_validate(&self, file: &File) -> Result<(), FileError> {
         match self.max_size {
             Some(size) => {
                 if file.bytes.len() > size {
@@ -155,5 +141,26 @@ impl Validator for FileValidator {
         }
 
         Ok(())
+    }
+}
+
+impl TryFrom<Config>  for FileValidator {
+    type Error = ConfigError;
+
+    fn try_from(config: Config) -> Result<Self, Self::Error> {
+        let content_types = config.get_path_list(Self::FIELD_CONTENT_TYPES)?;
+        let max_size = config.get_path_single(Self::FIELD_MAX_SIZE)?;
+
+        Ok(Self { content_types, max_size })
+    }
+}
+
+impl Validator for FileValidator {
+    fn validate_file(&self, file: &File) -> crate::Result {
+        self.do_validate(file).map_err(Into::into)
+    }
+
+    fn try_from_config(config: Config) -> Result<Self, ConfigError> where Self: Sized {
+        Self::try_from(config)
     }
 }

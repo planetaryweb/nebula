@@ -1,4 +1,6 @@
-use super::{join_iter, Validator, ValidationError};
+use crate::join_iter;
+
+use super::{Validator, ValidationError};
 use nebula_rpc::config::{Config, ConfigError, ConfigExt};
 use lazy_static::lazy_static;
 use std::collections::BTreeSet;
@@ -60,7 +62,7 @@ mod tests {
         validator.host_whitelist = None;
 
         for url in BLACKLISTED_URLS.iter() {
-            let err = validator.validate_text(url)
+            let err = validator.do_validate(url)
                 .expect_err("url should not validate");
 
             match err {
@@ -76,7 +78,7 @@ mod tests {
         validator.host_whitelist = None;
 
         for url in BLACKLISTED_SUBDOMAIN_URLS.iter() {
-            validator.validate_text(url)
+            validator.do_validate(url)
                 .expect("url should validate because it doesn't match the blacklisted domain");
         }
     }
@@ -87,7 +89,7 @@ mod tests {
         validator.host_blacklist = None;
 
         for url in WHITELISTED_URLS.iter() {
-            validator.validate_text(url)
+            validator.do_validate(url)
                 .expect("whitelisted url should validate");
         }
     }
@@ -98,7 +100,7 @@ mod tests {
         validator.host_blacklist = None;
 
         for url in BLACKLISTED_URLS.iter() {
-            let err = validator.validate_text(url)
+            let err = validator.do_validate(url)
                 .expect_err("url should not validate");
 
             match err {
@@ -114,7 +116,7 @@ mod tests {
         validator.host_blacklist = None;
 
         for url in WHITELISTED_SUBDOMAIN_URLS.iter() {
-            let err = validator.validate_text(url)
+            let err = validator.do_validate(url)
                 .expect_err("url should not validate");
 
             match err {
@@ -134,7 +136,7 @@ mod tests {
         // Default validator allows https and all of the following URLs should use https
         for list in vec![ WHITELISTED_URLS.iter(), WHITELISTED_SUBDOMAIN_URLS.iter(), BLACKLISTED_URLS.iter(), BLACKLISTED_SUBDOMAIN_URLS.iter() ].into_iter() {
             for url in list {
-                validator.validate_text(url).expect("HTTPS URLs should validate");
+                validator.do_validate(url).expect("HTTPS URLs should validate");
             }
         }
     }
@@ -153,7 +155,7 @@ mod tests {
             for url in list {
                 let mut newurl = "http".to_string();
                 newurl.push_str(url.strip_prefix("https").unwrap());
-                let err = validator.validate_text(&newurl).expect_err(format!("HTTP URLs ({}) should not validate", newurl).as_str());
+                let err = validator.do_validate(&newurl).expect_err(format!("HTTP URLs ({}) should not validate", newurl).as_str());
 
                 match err {
                     UrlError::SchemeNotWhitelisted(_) => {},
@@ -176,7 +178,7 @@ mod tests {
         let invalid_uris = vec!["https:///path/to/file", "https://?key1=val1&key2=val2"];
 
         for uri in invalid_uris {
-            let err = validator.validate_text(uri).expect_err(&format!("https uris without hosts should not validate: {}", uri));
+            let err = validator.do_validate(uri).expect_err(&format!("https uris without hosts should not validate: {}", uri));
 
             match err {
                 UrlError::HostMissing(_) => {},
@@ -208,7 +210,7 @@ mod tests {
                     }
                 }
 
-                let err = validator.validate_text(&uri)
+                let err = validator.do_validate(&uri)
                     .expect_err(&format!("URI scheme {} should require host and not validate: {}", scheme, uri));
 
                 match err {
@@ -241,19 +243,18 @@ fn parse_syntax_violations_are_errors(uri: &str) -> Result<Url, UrlError> {
 }
 
 #[derive(Debug)]
-pub(crate) enum UrlError {
+pub enum UrlError {
     HostBlacklisted(String),
     HostMissing(String),
     HostNotWhitelisted(String),
     SchemeNotWhitelisted(String),
     Parse(ParseError),
     SyntaxViolation(SyntaxViolation),
-    Validation(ValidationError),
 }
 
-impl From<ValidationError> for UrlError {
-    fn from(err: ValidationError) -> Self {
-        Self::Validation(err)
+impl From<UrlError> for ValidationError {
+    fn from(err: UrlError) -> Self {
+        Self::InvalidInput(err.to_string())
     }
 }
 
@@ -271,8 +272,7 @@ impl fmt::Display for UrlError {
             Self::HostNotWhitelisted(list) => write!(f, "URLs must be from one of the following: {}", list),
             Self::Parse(err) => write!(f, "Failed to parse URL: {}", err),
             Self::SchemeNotWhitelisted(list) => write!(f, "URL scheme must be one of the following: {}", list),
-            Self::SyntaxViolation(v) => write!(f, "URL syntax in invalid: {}", v),
-            Self::Validation(err) => write!(f, "{}", err),
+            Self::SyntaxViolation(v) => write!(f, "URL syntax is invalid: {}", v),
         }
     }
 }
@@ -325,7 +325,7 @@ lazy_static! {
     };
 }
 
-pub(crate) struct UrlValidator {
+pub struct UrlValidator {
     pub host_blacklist: Option<BTreeSet<String>>,
     pub host_whitelist: Option<BTreeSet<String>>,
     pub schemes_requiring_hosts: BTreeSet<String>,
@@ -337,29 +337,9 @@ impl UrlValidator {
     const FIELD_HOST_WHITELIST: &'static str = "host-whitelist";
     const FIELD_SCHEMES_REQUIRING_HOSTS: &'static str = "schemes-requiring-hosts";
     const FIELD_SCHEMES: &'static str = "schemes";
-}
 
-impl TryFrom<Config> for UrlValidator {
-    type Error = ConfigError;
-    fn try_from(config: Config) -> Result<Self, ConfigError> {
-        let host_blacklist = config.get_path_list(Self::FIELD_HOST_BLACKLIST)?;
-        let host_whitelist = config.get_path_list(Self::FIELD_HOST_WHITELIST)?;
-        let schemes = config.get_path_list(Self::FIELD_SCHEMES)?;
-        let schemes_requiring_hosts = config.get_path_list(Self::FIELD_SCHEMES_REQUIRING_HOSTS)?
-            .unwrap_or_else(|| {
-                match &schemes {
-                    None => SCHEMES_REQ_HOSTS_DEFAULT.clone(),
-                    Some(set) => SCHEMES_REQ_HOSTS_DEFAULT.intersection(set).cloned().collect(),
-                }
-            });
-        Ok(Self { host_blacklist, host_whitelist, schemes, schemes_requiring_hosts })
-    }
-}
-
-impl Validator for UrlValidator {
-    type Error = UrlError;
-    fn validate_text(&self, text: &str) -> Result<(), UrlError> {
-        let url = parse_syntax_violations_are_errors(text)?;
+    fn do_validate(&self, text: &str) -> Result<(), UrlError> {
+let url = parse_syntax_violations_are_errors(text)?;
 
 
         if let Some(schemes) = &self.schemes {
@@ -386,5 +366,32 @@ impl Validator for UrlValidator {
         }
 
         Ok(())
+    }
+}
+
+impl TryFrom<Config> for UrlValidator {
+    type Error = ConfigError;
+    fn try_from(config: Config) -> Result<Self, ConfigError> {
+        let host_blacklist = config.get_path_list(Self::FIELD_HOST_BLACKLIST)?;
+        let host_whitelist = config.get_path_list(Self::FIELD_HOST_WHITELIST)?;
+        let schemes = config.get_path_list(Self::FIELD_SCHEMES)?;
+        let schemes_requiring_hosts = config.get_path_list(Self::FIELD_SCHEMES_REQUIRING_HOSTS)?
+            .unwrap_or_else(|| {
+                match &schemes {
+                    None => SCHEMES_REQ_HOSTS_DEFAULT.clone(),
+                    Some(set) => SCHEMES_REQ_HOSTS_DEFAULT.intersection(set).cloned().collect(),
+                }
+            });
+        Ok(Self { host_blacklist, host_whitelist, schemes, schemes_requiring_hosts })
+    }
+}
+
+impl Validator for UrlValidator {
+    fn validate_text(&self, text: &str) -> crate::Result {
+        self.do_validate(text).map_err(Into::into)
+    }
+
+    fn try_from_config(config: Config) -> Result<Self, ConfigError> where Self: Sized {
+        Self::try_from(config)
     }
 }

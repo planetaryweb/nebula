@@ -1,4 +1,6 @@
-use super::{join_iter, Validator, ValidationError};
+use crate::join_iter;
+
+use super::{Validator, ValidationError};
 use nebula_rpc::config::{Config, ConfigError, ConfigExt};
 use lazy_static::lazy_static;
 use regex::Regex;
@@ -44,31 +46,31 @@ mod tests {
     #[test]
     fn int_non_numeric_string_does_not_validate() {
         let validator = get_int_validator();
-        let err = validator.validate_text("three")
+        let err = validator.do_validate("three")
             .expect_err("number as word should not validate");
         match err {
             NumberError::<i32>::NotANumber(_) => {},
             err => panic!("invalid error, expected NotANumber: {}", err),
         }
-        validator.validate_text("")
+        validator.do_validate("")
             .expect_err("empty string should not validate");
         match err {
             NumberError::<i32>::NotANumber(_) => {},
             err => panic!("invalid error, expected NotANumber: {}", err),
         }
-        validator.validate_text("abc123")
+        validator.do_validate("abc123")
             .expect_err("string starting with letters should not validate");
         match err {
             NumberError::<i32>::NotANumber(_) => {},
             err => panic!("invalid error, expected NotANumber: {}", err),
         }
-        validator.validate_text("123abc")
+        validator.do_validate("123abc")
             .expect_err("string ending with letters should not validate");
         match err {
             NumberError::<i32>::NotANumber(_) => {},
             err => panic!("invalid error, expected NotANumber: {}", err),
         }
-        validator.validate_text("  123  ")
+        validator.do_validate("  123  ")
             .expect_err("string padded with spaces should not validate");
         match err {
             NumberError::<i32>::NotANumber(_) => {},
@@ -79,7 +81,7 @@ mod tests {
     #[test]
     fn int_too_large_negative_is_too_small() {
         let mut validator = get_int_validator();
-        let err = validator.validate_text("-500")
+        let err = validator.do_validate("-500")
             .expect_err("too negative of a number should not validate");
         match err {
             NumberError::<i32>::TooSmall(_) => {},
@@ -93,7 +95,7 @@ mod tests {
     #[test]
     fn int_too_large_positive_is_too_big() {
         let mut validator = get_int_validator();
-        let err = validator.validate_text("500")
+        let err = validator.do_validate("500")
             .expect_err("too positive of a number should not validate");
         match err {
             NumberError::<i32>::TooLarge(_) => {},
@@ -120,7 +122,7 @@ mod tests {
         validator.min = Some(2);
         validator.max = Some(5);
 
-        let err = validator.validate_text("4")
+        let err = validator.do_validate("4")
             .expect_err("number within range and not in valid list should not validate");
         match err {
             NumberError::<i32>::NotInSet(_) => {},
@@ -155,12 +157,11 @@ pub(crate) enum NumberError<T> where T: NumberType {
     TooSmall(T),
     TooLarge(T),
     NotInSet(String),
-    Validation(ValidationError),
 }
 
-impl<T> From<ValidationError> for NumberError<T> where T: NumberType {
-    fn from(err: ValidationError) -> Self {
-        Self::Validation(err)
+impl<T> From<NumberError<T>> for ValidationError where T: NumberType {
+    fn from(err: NumberError<T>) -> Self {
+        Self::InvalidInput(err.to_string())
     }
 }
 
@@ -172,7 +173,6 @@ impl<T> fmt::Display for NumberError<T> where T: NumberType {
             Self::TooSmall(min) => write!(f, "value is below minimum: {}", min),
             Self::TooLarge(max) => write!(f, "value is above maximum: {}", max),
             Self::NotInSet(set_list) => write!(f, "value is not among allowed values: {}", set_list),
-            Self::Validation(err) => write!(f, "{}", err),
         }
     }
 }
@@ -183,31 +183,18 @@ lazy_static! {
     static ref NUMBER_REGEX: Regex = Regex::new(r#"\d+"#).unwrap();
 }
 
-pub(crate) struct NumberValidator<T> where T: NumberType {
+pub struct NumberValidator<T> where T: NumberType {
     pub min: Option<T>,
     pub max: Option<T>,
     pub valid_list: Option<BTreeSet<T>>,
 }
 
-impl<T> NumberValidator<T> where T: NumberType {
+impl<T> NumberValidator<T> where T: NumberType, <T as FromStr>::Err: ErrorTrait {
     const FIELD_MIN: &'static str = "min";
     const FIELD_MAX: &'static str = "max";
     const FIELD_VALID_LIST: &'static str = "valid-list";
-}
 
-impl<T> TryFrom<Config> for NumberValidator<T> where T: NumberType, <T as FromStr>::Err: ErrorTrait {
-    type Error = ConfigError;
-    fn try_from(config: Config) -> Result<Self, ConfigError> {
-        let min = config.get_path_single(Self::FIELD_MIN)?;
-        let max = config.get_path_single(Self::FIELD_MAX)?;
-        let valid_list = config.get_path_list(Self::FIELD_VALID_LIST)?;
-        Ok(Self { min, max, valid_list })
-    }
-}
-
-impl<T> Validator for NumberValidator<T> where T: NumberType, <T as FromStr>::Err: ErrorTrait {
-    type Error = NumberError<T>;
-    fn validate_text(&self, text: &str) -> Result<(), NumberError<T>> {
+    fn do_validate(&self, text: &str) -> Result<(), NumberError<T>> {
         if !NUMBER_REGEX.is_match(text) {
             return Err(NumberError::<T>::NotANumber(text.to_string()));
         }
@@ -236,5 +223,25 @@ impl<T> Validator for NumberValidator<T> where T: NumberType, <T as FromStr>::Er
         }
 
         Ok(())
+    }
+}
+
+impl<T> TryFrom<Config> for NumberValidator<T> where T: NumberType, <T as FromStr>::Err: ErrorTrait {
+    type Error = ConfigError;
+    fn try_from(config: Config) -> Result<Self, ConfigError> {
+        let min = config.get_path_single(Self::FIELD_MIN)?;
+        let max = config.get_path_single(Self::FIELD_MAX)?;
+        let valid_list = config.get_path_list(Self::FIELD_VALID_LIST)?;
+        Ok(Self { min, max, valid_list })
+    }
+}
+
+impl<T> Validator for NumberValidator<T> where T: NumberType + Send + Sync, <T as FromStr>::Err: ErrorTrait {
+    fn validate_text(&self, text: &str) -> crate::Result {
+        self.do_validate(text).map_err(Into::into)
+    }
+
+    fn try_from_config(config: Config) -> Result<Self, ConfigError> where Self: Sized {
+        Self::try_from(config)
     }
 }

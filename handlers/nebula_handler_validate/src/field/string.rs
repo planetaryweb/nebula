@@ -18,7 +18,7 @@ mod tests {
             regex: None,
         };
 
-        let err = validator.validate_text(text)
+        let err = validator.do_validate(text)
             .expect_err("validating text with less than minimum length should fail");
 
         match err {
@@ -41,7 +41,7 @@ mod tests {
             regex: None,
         };
 
-        let err = validator.validate_text(text)
+        let err = validator.do_validate(text)
             .expect_err("validating text with more than maximum length should fail");
 
         match err {
@@ -68,7 +68,7 @@ mod tests {
         validator.validate_text(valid)
             .expect("valid text should validate");
 
-        let err = validator.validate_text(invalid)
+        let err = validator.do_validate(invalid)
             .expect_err("invalid text should not validate");
 
         match err {
@@ -83,12 +83,11 @@ pub(crate) enum StringError {
     TooShort(usize),
     TooLong(usize),
     Invalid,
-    Validation(ValidationError),
 }
 
-impl From<ValidationError> for StringError {
-    fn from(err: ValidationError) -> Self {
-        Self::Validation(err)
+impl From<StringError> for ValidationError {
+    fn from(err: StringError) -> Self {
+        Self::InvalidInput(err.to_string())
     }
 }
 
@@ -98,7 +97,6 @@ impl fmt::Display for StringError {
             Self::TooShort(min) => write!(f, "value must be at least {} characters long", min),
             Self::TooLong(max) => write!(f, "value must be no more than {} characters long", max),
             Self::Invalid => write!(f, "value is invalid"),
-            Self::Validation(err) => write!(f, "{}", err),
         }
     }
 }
@@ -106,7 +104,7 @@ impl fmt::Display for StringError {
 impl Error for StringError {}
 
 #[derive(Debug)]
-pub(crate) struct StringValidator {
+pub struct StringValidator {
     pub min_len: Option<usize>,
     pub max_len: Option<usize>,
     pub regex: Option<Regex>,
@@ -116,6 +114,28 @@ impl StringValidator {
     const FIELD_MIN_LENGTH: &'static str = "min";
     const FIELD_MAX_LENGTH: &'static str = "max";
     const FIELD_REGEX: &'static str = "regex";
+
+    fn do_validate(&self, text: &str) -> Result<(), StringError> {
+        if let Some(min) = self.min_len {
+            if text.len() < min {
+                return Err(StringError::TooShort(min));
+            }
+        }
+
+        if let Some(max) = self.max_len {
+            if text.len() > max {
+                return Err(StringError::TooLong(max));
+            }
+        }
+
+        if let Some(rgx) = &self.regex {
+            if !rgx.is_match(text) {
+                return Err(StringError::Invalid);
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl TryFrom<Config> for StringValidator {
@@ -146,27 +166,11 @@ impl std::cmp::PartialEq for StringValidator {
 }
 
 impl Validator for StringValidator {
-    type Error = StringError;
+    fn validate_text(&self, text: &str) -> crate::Result {
+        self.do_validate(text).map_err(Into::into)
+    }
 
-    fn validate_text(&self, text: &str) -> Result<(), StringError> {
-        if let Some(min) = self.min_len {
-            if text.len() < min {
-                return Err(StringError::TooShort(min));
-            }
-        }
-
-        if let Some(max) = self.max_len {
-            if text.len() > max {
-                return Err(StringError::TooLong(max));
-            }
-        }
-
-        if let Some(rgx) = &self.regex {
-            if !rgx.is_match(text) {
-                return Err(StringError::Invalid);
-            }
-        }
-
-        Ok(())
+    fn try_from_config(config: Config) -> Result<Self, ConfigError> where Self: Sized {
+        Self::try_from(config)
     }
 }
